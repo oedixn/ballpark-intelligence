@@ -1,9 +1,10 @@
-import { BrowserRouter, Routes, Route, Link, useNavigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, NavLink, Link, useNavigate } from 'react-router-dom';
 import { useState, useRef, useEffect } from 'react';
 import HomePage from './pages/HomePage';
 import PlayerPage from './pages/PlayerPage';
 import SimulatorPage from './pages/SimulatorPage';
 import LineupPage from './pages/LineupPage';
+import NotFoundPage from './pages/NotFoundPage';
 import { useSearchHistory } from './hooks/useSearchHistory';
 
 function NavBar() {
@@ -14,7 +15,6 @@ function NavBar() {
   const inputRef = useRef<HTMLInputElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  // 외부 클릭 시 드롭다운 닫기
   useEffect(() => {
     const handleClick = (e: MouseEvent) => {
       if (
@@ -45,21 +45,32 @@ function NavBar() {
 
   return (
     <nav className="bg-gray-900 border-b border-gray-700 px-10 py-4 flex items-center gap-6 relative z-50">
-      {/* 로고 */}
+
+      {/* 로고 → 메인 페이지 */}
       <Link to="/home" className="text-orange-400 font-black text-lg mr-4 shrink-0">
         ⚾ BallPark
       </Link>
 
-      {/* 메뉴 */}
-      <Link to="/player" className="text-gray-400 hover:text-white text-sm transition-colors shrink-0">
-        선수 프로필
-      </Link>
-      <Link to="/simulator" className="text-gray-400 hover:text-white text-sm transition-colors shrink-0">
-        경기 시뮬레이터
-      </Link>
-      <Link to="/lineup" className="text-gray-400 hover:text-white text-sm transition-colors shrink-0">
-        타순 배치
-      </Link>
+      {/* 메뉴 — 현재 페이지 활성화 */}
+      {[
+        { to: '/player',    label: '선수 프로필' },
+        { to: '/simulator', label: '경기 시뮬레이터' },
+        { to: '/lineup',    label: '타순 배치' },
+      ].map(({ to, label }) => (
+        <NavLink
+          key={to}
+          to={to}
+          className={({ isActive }) =>
+            `text-sm transition-colors shrink-0 pb-1 ${
+              isActive
+                ? 'text-white font-bold border-b-2 border-orange-400'
+                : 'text-gray-400 hover:text-white'
+            }`
+          }
+        >
+          {label}
+        </NavLink>
+      ))}
 
       {/* 검색바 + 히스토리 드롭다운 */}
       <div className="ml-auto relative w-64">
@@ -81,7 +92,6 @@ function NavBar() {
             ref={dropdownRef}
             className="absolute top-full mt-1 w-full bg-gray-800 border border-gray-700 rounded-xl shadow-xl overflow-hidden"
           >
-            {/* 헤더 */}
             <div className="flex items-center justify-between px-4 py-2 border-b border-gray-700">
               <span className="text-gray-500 text-xs">최근 검색</span>
               <button
@@ -91,8 +101,6 @@ function NavBar() {
                 전체 삭제
               </button>
             </div>
-
-            {/* 히스토리 목록 */}
             {history.map((h) => (
               <div
                 key={h}
@@ -124,11 +132,12 @@ export default function App() {
     <BrowserRouter>
       <NavBar />
       <Routes>
-        <Route path="/" element={<HomePage />} />
-        <Route path="/home" element={<HomePage />} />
-        <Route path="/player" element={<PlayerPage />} />
+        <Route path="/"          element={<HomePage />} />
+        <Route path="/home"      element={<HomePage />} />
+        <Route path="/player"    element={<PlayerPage />} />
         <Route path="/simulator" element={<SimulatorPage />} />
-        <Route path="/lineup" element={<LineupPage />} />
+        <Route path="/lineup"    element={<LineupPage />} />
+        <Route path="*"          element={<NotFoundPage />} />
       </Routes>
     </BrowserRouter>
   );
