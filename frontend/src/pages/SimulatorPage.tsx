@@ -1,10 +1,12 @@
 import { useState } from 'react';
 import Scoreboard from '../components/simulator/Scoreboard';
 import GameLogView from '../components/simulator/GameLog';
+import StatsModal from '../components/simulator/StatsModal';
 import { mockGameLog, mockScoreboard } from '../data/mockGame';
 
 export default function SimulatorPage() {
   const [started, setStarted] = useState(false);
+  const [showStats, setShowStats] = useState(false);
 
   return (
     <div className="min-h-screen bg-gray-900">
@@ -73,6 +75,7 @@ export default function SimulatorPage() {
                 🔄 다시 시뮬
               </button>
               <button
+                onClick={() => setShowStats(true)}
                 className="bg-blue-600 hover:bg-blue-700 text-white font-bold px-8 py-3 rounded-xl transition-colors"
               >
                 📊 100경기 통계
@@ -80,8 +83,11 @@ export default function SimulatorPage() {
             </div>
           </>
         )}
-
       </div>
+
+      {/* 100경기 통계 모달 */}
+      {showStats && <StatsModal onClose={() => setShowStats(false)} />}
+
     </div>
   );
 }
