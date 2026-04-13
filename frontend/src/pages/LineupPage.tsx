@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   DndContext,
   closestCenter,
@@ -19,6 +20,7 @@ import type { Player } from '../data/mockPlayers';
 
 export default function LineupPage() {
   const [lineup, setLineup] = useState<Player[]>(mockLineup);
+  const navigate = useNavigate();
 
   const sensors = useSensors(
     useSensor(PointerSensor),
@@ -99,7 +101,10 @@ export default function LineupPage() {
             </table>
 
             {/* 시뮬레이션 버튼 */}
-            <button className="mt-6 w-full bg-orange-500 hover:bg-orange-600 text-white font-black py-3 rounded-xl transition-colors">
+            <button
+              onClick={() => navigate('/simulator')}
+              className="mt-6 w-full bg-orange-500 hover:bg-orange-600 text-white font-black py-3 rounded-xl transition-colors"
+            >
               ▶ 이 타순으로 시뮬레이션
             </button>
           </div>
