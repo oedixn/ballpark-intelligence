@@ -9,3 +9,13 @@ venv/
 
 # OS
 .DS_Store
+
+# Docker
+postgres_data/
+
+# Frontend build
+frontend/dist/
+
+# Backend
+backend/__pycache__/
+backend/.env
