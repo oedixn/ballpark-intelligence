@@ -1,1 +1,11 @@
-a
+schema.sql # DB 테이블 구조 
+load_kbo_to_postgres.py # CSV → DB 적재 스크립트 
+output_db_ready/ # 크롤링된 데이터 (CSV) (5월 1일기준 kbreport 서버가 터져서 전에 크롤링했던 21년도 데이터만 있습니다 서버 복구 되는데로 21~25년도 데이터 크롤링해서 업데이트 해놓을게요)
+
+사용법
+1. PostgreSQL 설치 (PostgreSQL 14 이상 권장, pgAdmin 설치 (GUI 사용)
+2. pgAdmin → Query Tool에서 실행 (CREATE DATABASE kbo_db;)
+3. kbo_db 선택
+4. Query Tool 열기
+5. schema.sql 내용 전체 복붙 후 실행
+6.load_kbo_to_postgres.py 실행 (load_kbo_to_postgres.py 파일과 같은 폴더에 output_db_ready 폴더가 있어야 하며 실행하기전 코드 39열부터 44열 db_config 확인후 실행시키셔야 합니다)
