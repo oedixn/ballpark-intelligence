@@ -1,6 +1,6 @@
 interface TeamScore {
   team: string;
-  scores: number[];
+  innings: number[];
   total: number;
 }
 
@@ -10,7 +10,8 @@ interface Props {
 }
 
 export default function Scoreboard({ away, home }: Props) {
-  const innings = Array.from({ length: 9 }, (_, i) => i + 1);
+  const inningCount = Math.max(away.innings.length, home.innings.length, 9);
+  const inningLabels = Array.from({ length: inningCount }, (_, i) => i + 1);
 
   return (
     <div className="bg-gray-800 rounded-xl p-6">
@@ -20,7 +21,7 @@ export default function Scoreboard({ away, home }: Props) {
           <thead>
             <tr className="text-gray-400">
               <th className="text-left py-2 pr-6 w-32">팀</th>
-              {innings.map((i) => (
+              {inningLabels.map((i) => (
                 <th key={i} className="text-center py-2 w-8">{i}</th>
               ))}
               <th className="text-center py-2 px-4 text-white font-bold">R</th>
@@ -30,14 +31,20 @@ export default function Scoreboard({ away, home }: Props) {
             {[away, home].map((team) => (
               <tr key={team.team} className="border-t border-gray-700">
                 <td className="py-3 pr-6 text-white font-semibold text-xs">{team.team}</td>
-                {team.scores.map((score, i) => (
-                  <td key={i} className="text-center py-3 text-gray-300 w-8">
-                    {score === 0
-                      ? <span className="text-gray-600">0</span>
-                      : <span className="text-orange-400 font-bold">{score}</span>
-                    }
-                  </td>
-                ))}
+                {inningLabels.map((_, i) => {
+                  const score = team.innings[i];
+                  return (
+                    <td key={i} className="text-center py-3 text-gray-300 w-8">
+                      {score === undefined ? (
+                        <span className="text-gray-600">-</span>
+                      ) : score === 0 ? (
+                        <span className="text-gray-600">0</span>
+                      ) : (
+                        <span className="text-orange-400 font-bold">{score}</span>
+                      )}
+                    </td>
+                  );
+                })}
                 <td className="text-center py-3 px-4 text-orange-400 font-black text-lg">
                   {team.total}
                 </td>

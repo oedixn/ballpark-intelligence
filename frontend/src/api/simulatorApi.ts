@@ -1,28 +1,88 @@
 import axios from 'axios';
 
-const BASE_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8000';
+const api = axios.create({
+  baseURL: 'http://localhost:8000',
+});
 
-const api = axios.create({ baseURL: BASE_URL });
+export interface PlayerRecord {
+  name: string;
+  ab: number;
+  hits: number;
+  double: number;
+  triple: number;
+  hr: number;
+  bb: number;
+  hbp: number;
+}
 
-// 단일 경기 시뮬레이션
-export const simulateGame = async (awayLineup: number[], homeLineup: number[]) => {
-  const res = await api.post('/api/simulate/game', {
-    away_lineup: awayLineup,
-    home_lineup: homeLineup,
-  });
+export interface PlateAppearance {
+  inning: number;
+  half: string;
+  batter_order: number;
+  batter_name: string;
+  event: string;
+  runs_scored: number;
+  outs_after: number;
+  bases_after: string;
+}
+
+export interface InningLog {
+  inning: number;
+  half: string;
+  team_name: string;
+  runs: number;
+  plate_appearances: PlateAppearance[];
+}
+
+export interface GameLog {
+  team_a: string;
+  team_b: string;
+  final_score: [number, number];
+  innings: InningLog[];
+}
+
+export interface SimulateRequest {
+  team_a_name: string;
+  team_a_lineup: PlayerRecord[];
+  team_b_name: string;
+  team_b_lineup: PlayerRecord[];
+  innings?: number;
+}
+
+export interface SimulateResponse {
+  team_a_name: string;
+  team_b_name: string;
+  game_log: GameLog;
+}
+
+export interface MultiSimulateResponse {
+  team_a: {
+    name: string;
+    markov_expected: number;
+    mean_runs: number;
+    variance: number;
+    prob_0_runs: number;
+    prob_5_or_more: number;
+  };
+  team_b: {
+    name: string;
+    markov_expected: number;
+    mean_runs: number;
+    variance: number;
+    prob_0_runs: number;
+    prob_5_or_more: number;
+  };
+  n_games: number;
+}
+
+export async function simulateGame(req: SimulateRequest): Promise<SimulateResponse> {
+  const res = await api.post<SimulateResponse>('/api/simulate/game', req);
   return res.data;
-};
+}
 
-// 다경기 시뮬레이션 (n회 반복)
-export const simulateMulti = async (
-  awayLineup: number[],
-  homeLineup: number[],
-  n: number = 1000
-) => {
-  const res = await api.post('/api/simulate/multi', {
-    away_lineup: awayLineup,
-    home_lineup: homeLineup,
-    n,
-  });
+export async function simulateMulti(
+  req: SimulateRequest & { n_games?: number }
+): Promise<MultiSimulateResponse> {
+  const res = await api.post<MultiSimulateResponse>('/api/simulate/multi', req);
   return res.data;
-};
+}

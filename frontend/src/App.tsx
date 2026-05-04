@@ -5,6 +5,7 @@ import PlayerPage from './pages/PlayerPage';
 import SimulatorPage from './pages/SimulatorPage';
 import LineupPage from './pages/LineupPage';
 import NotFoundPage from './pages/NotFoundPage';
+import MyTeamPage from './pages/MyTeamPage';
 import { useSearchHistory } from './hooks/useSearchHistory';
 
 function NavBar() {
@@ -51,11 +52,12 @@ function NavBar() {
         ⚾ BallPark
       </Link>
 
-      {/* 메뉴 — 현재 페이지 활성화 */}
+      {/* 메뉴 */}
       {[
         { to: '/player',    label: '선수 프로필' },
         { to: '/simulator', label: '경기 시뮬레이터' },
         { to: '/lineup',    label: '타순 배치' },
+        { to: '/my-team',   label: '나만의 팀' },
       ].map(({ to, label }) => (
         <NavLink
           key={to}
@@ -137,6 +139,7 @@ export default function App() {
         <Route path="/player"    element={<PlayerPage />} />
         <Route path="/simulator" element={<SimulatorPage />} />
         <Route path="/lineup"    element={<LineupPage />} />
+        <Route path="/my-team"   element={<MyTeamPage />} />
         <Route path="*"          element={<NotFoundPage />} />
       </Routes>
     </BrowserRouter>

@@ -1,31 +1,32 @@
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid,
-  Tooltip, ResponsiveContainer, ReferenceLine
+  Tooltip, ResponsiveContainer, ReferenceLine,
 } from 'recharts';
+import type { MultiSimulateResponse } from '../../api/simulatorApi';
 
 interface Props {
   onClose: () => void;
+  stats: MultiSimulateResponse;
 }
 
-// 100경기 득점 분포 mock 데이터
-const generateDistribution = () => {
-  const data: { runs: number; count: number }[] = [];
-  const dist = [1, 2, 3, 5, 8, 12, 15, 18, 16, 12, 8, 5, 3, 2, 1];
-  dist.forEach((count, i) => {
-    data.push({ runs: i + 1, count });
-  });
-  return data;
-};
+export default function StatsModal({ onClose, stats }: Props) {
+  const { team_a, team_b, n_games } = stats;
 
-const data = generateDistribution();
-const totalGames = data.reduce((a, b) => a + b.count, 0);
-const avgRuns = (
-  data.reduce((a, b) => a + b.runs * b.count, 0) / totalGames
-).toFixed(1);
-const wins = data.filter((d) => d.runs >= 5).reduce((a, b) => a + b.count, 0);
-const winRate = ((wins / totalGames) * 100).toFixed(1);
+  // 득점 분포 히스토그램용 데이터 (정규분포 근사)
+  const generateDist = (mean: number, variance: number) => {
+    const std = Math.sqrt(variance);
+    return Array.from({ length: 15 }, (_, i) => {
+      const x = i + 1;
+      const count = Math.round(
+        n_games * (1 / (std * Math.sqrt(2 * Math.PI))) *
+        Math.exp(-0.5 * Math.pow((x - mean) / std, 2))
+      );
+      return { runs: x, count: Math.max(count, 0) };
+    });
+  };
 
-export default function StatsModal({ onClose }: Props) {
+  const distA = generateDist(team_a.mean_runs, team_a.variance);
+
   return (
     <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 px-6">
       <div className="bg-gray-900 rounded-2xl w-full max-w-2xl p-8 border border-gray-700">
@@ -33,8 +34,10 @@ export default function StatsModal({ onClose }: Props) {
         {/* 헤더 */}
         <div className="flex items-center justify-between mb-6">
           <div>
-            <h2 className="text-white text-2xl font-black">100경기 시뮬레이션 통계</h2>
-            <p className="text-gray-400 text-sm mt-1">KIA 타이거즈 vs SSG 랜더스</p>
+            <h2 className="text-white text-2xl font-black">{n_games}경기 시뮬레이션 통계</h2>
+            <p className="text-gray-400 text-sm mt-1">
+              {team_a.name} vs {team_b.name}
+            </p>
           </div>
           <button
             onClick={onClose}
@@ -44,27 +47,68 @@ export default function StatsModal({ onClose }: Props) {
           </button>
         </div>
 
+        {/* 팀별 요약 */}
+        <div className="grid grid-cols-2 gap-4 mb-6">
+          {[team_a, team_b].map((team) => (
+            <div key={team.name} className="bg-gray-800 rounded-xl p-4">
+              <p className="text-white font-bold text-sm mb-3">{team.name}</p>
+              <div className="space-y-2">
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-400">마르코프 기대득점</span>
+                  <span className="text-orange-400 font-bold">
+                    {team.markov_expected.toFixed(2)}
+                  </span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-400">몬테카를로 평균</span>
+                  <span className="text-orange-400 font-bold">
+                    {team.mean_runs.toFixed(2)}
+                  </span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-400">5점 이상 확률</span>
+                  <span className="text-blue-400 font-bold">
+                    {(team.prob_5_or_more * 100).toFixed(1)}%
+                  </span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-400">0점 확률</span>
+                  <span className="text-red-400 font-bold">
+                    {(team.prob_0_runs * 100).toFixed(1)}%
+                  </span>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+
         {/* 요약 수치 */}
-        <div className="grid grid-cols-3 gap-4 mb-8">
+        <div className="grid grid-cols-3 gap-4 mb-6">
           <div className="bg-gray-800 rounded-xl p-4 text-center">
-            <p className="text-orange-400 text-3xl font-black">{avgRuns}</p>
-            <p className="text-gray-400 text-xs mt-1">경기당 평균 득점</p>
+            <p className="text-orange-400 text-3xl font-black">
+              {team_a.mean_runs.toFixed(1)}
+            </p>
+            <p className="text-gray-400 text-xs mt-1">{team_a.name} 평균 득점</p>
           </div>
           <div className="bg-gray-800 rounded-xl p-4 text-center">
-            <p className="text-orange-400 text-3xl font-black">{winRate}%</p>
+            <p className="text-orange-400 text-3xl font-black">
+              {(team_a.prob_5_or_more * 100).toFixed(1)}%
+            </p>
             <p className="text-gray-400 text-xs mt-1">승률 (5점 이상)</p>
           </div>
           <div className="bg-gray-800 rounded-xl p-4 text-center">
-            <p className="text-orange-400 text-3xl font-black">{totalGames}</p>
+            <p className="text-orange-400 text-3xl font-black">{n_games}</p>
             <p className="text-gray-400 text-xs mt-1">시뮬레이션 횟수</p>
           </div>
         </div>
 
         {/* 히스토그램 */}
         <div>
-          <p className="text-gray-400 text-xs mb-4 uppercase tracking-widest">득점 분포</p>
-          <ResponsiveContainer width="100%" height={220}>
-            <BarChart data={data} margin={{ top: 0, right: 0, bottom: 0, left: -20 }}>
+          <p className="text-gray-400 text-xs mb-4 uppercase tracking-widest">
+            {team_a.name} 득점 분포
+          </p>
+          <ResponsiveContainer width="100%" height={200}>
+            <BarChart data={distA} margin={{ top: 0, right: 0, bottom: 0, left: -20 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
               <XAxis
                 dataKey="runs"
@@ -79,7 +123,7 @@ export default function StatsModal({ onClose }: Props) {
                 formatter={(v) => [`${v}회`, '경기 수']}
               />
               <ReferenceLine
-                x={Math.round(Number(avgRuns))}
+                x={Math.round(team_a.mean_runs)}
                 stroke="#F97316"
                 strokeDasharray="4 4"
                 label={{ value: '평균', fill: '#F97316', fontSize: 11 }}
