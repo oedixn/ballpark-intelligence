@@ -39,13 +39,13 @@ from psycopg2 import sql
 DB_CONFIG = {
     "host": "localhost",
     "port": 5432,
-    "dbname": "kbo_db",        # 본인 DB명으로 수정
-    "user": "postgres",     # 본인 계정으로 수정
-    "password": "1234",     # 본인 비밀번호로 수정
+    "dbname": "ballpark",        # 본인 DB명으로 수정
+    "user": "ballpark",     # 본인 계정으로 수정
+    "password": "ballpark1234",     # 본인 비밀번호로 수정
 }
 
 # 크롤링 결과 CSV 폴더
-CSV_DIR = Path("output_db_ready")
+CSV_DIR = Path(__file__).parent / "output_db_ready"
 
 # CSV 파일명이 (1) 붙은 업로드본인 경우에도 자동으로 찾기 위한 후보 목록
 CSV_ALIASES = {
