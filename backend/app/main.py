@@ -184,7 +184,7 @@ def get_player(player_id: int):
             LEFT JOIN player_defense_stats def
                 ON p.player_id = def.player_id
                 AND pst.season_year = def.season_year
-            WHERE p.player_id = %s AND pst.season_year = 2021
+            WHERE p.player_id = %s::varchar AND pst.season_year = 2021
         """, (player_id,))
 
         row = cur.fetchone()

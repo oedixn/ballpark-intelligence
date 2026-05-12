@@ -6,16 +6,71 @@ import InsightBox from '../components/player/InsightBox';
 import PlayerCard from '../components/player/PlayerCard';
 import LoadingSpinner from '../components/common/LoadingSpinner';
 import ErrorBox from '../components/common/ErrorBox';
-import { mockPlayers } from '../data/mockPlayers';
+import { fetchPlayers, fetchPlayerById } from '../api/playerApi';
+import type { PlayerDB } from '../api/playerApi';
 import type { Player } from '../data/mockPlayers';
 
+// DB 선수 → Player 타입 변환
+function dbToPlayer(p: PlayerDB): Player {
+  return {
+    id: Number(p.player_id),
+    name: p.player_name,
+    team: p.team_name,
+    position: p.position ?? '-',
+    stats: [
+      { label: 'wOBA', value: Number(p.woba    ?? 0), percentile: 0, unit: 'wOBA' },
+      { label: 'OPS',  value: Number(p.ops     ?? 0), percentile: 0, unit: 'OPS'  },
+      { label: 'HR',   value: Number(p.hr      ?? 0), percentile: 0, unit: 'HR'   },
+      { label: 'BB%',  value: Number(p.bb_rate ?? 0), percentile: 0, unit: '%'    },
+      { label: 'K%',   value: Number(p.k_rate  ?? 0), percentile: 0, unit: '%'    },
+    ],
+    radar: [
+      { stat: '컨택',   value: Math.min(99, Math.round(Number(p.avg     ?? 0) * 300)) },
+      { stat: '파워',   value: Math.min(99, Math.round(Number(p.iso     ?? 0) * 400)) },
+      { stat: '선구안', value: Math.min(99, Math.round(Number(p.bb_rate ?? 0) * 5))   },
+      { stat: '스피드', value: Math.min(99, Math.round(Number(p.spd     ?? 0) * 10))  },
+      { stat: '수비',   value: 60 },
+      { stat: '출루',   value: Math.min(99, Math.round(Number(p.obp     ?? 0) * 200)) },
+    ],
+    raw: {
+      ab:     Number(p.ab         ?? 300),
+      hits:   Number(p.h          ?? 80),
+      double: Number(p.double_hit ?? 15),
+      triple: Number(p.triple_hit ?? 2),
+      hr:     Number(p.hr         ?? 5),
+      bb:     Number(p.bb         ?? 30),
+      hbp:    Number(p.hbp        ?? 3),
+    },
+  };
+}
+
+// 리그 평균 기준으로 퍼센타일 계산 (간단 추정)
+function calcPercentile(label: string, value: number): number {
+  const benchmarks: Record<string, { min: number; max: number }> = {
+    'wOBA': { min: 0.250, max: 0.450 },
+    'OPS':  { min: 0.550, max: 1.000 },
+    'HR':   { min: 0,     max: 40    },
+    'BB%':  { min: 3,     max: 20    },
+    'K%':   { min: 5,     max: 35    },
+  };
+  const b = benchmarks[label];
+  if (!b) return 50;
+  const pct = ((value - b.min) / (b.max - b.min)) * 100;
+  // K%는 낮을수록 좋음
+  return label === 'K%'
+    ? Math.min(99, Math.max(1, Math.round(100 - pct)))
+    : Math.min(99, Math.max(1, Math.round(pct)));
+}
+
 export default function PlayerPage() {
-  const [player, setPlayer] = useState<Player | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(false);
-  const [query, setQuery] = useState('');
-  const [showList, setShowList] = useState(true);
-  const [searchParams] = useSearchParams();
+  const [player, setPlayer]       = useState<Player | null>(null);
+  const [players, setPlayers]     = useState<Player[]>([]);
+  const [loading, setLoading]     = useState(false);
+  const [listLoading, setListLoading] = useState(false);
+  const [error, setError]         = useState(false);
+  const [query, setQuery]         = useState('');
+  const [showList, setShowList]   = useState(true);
+  const [searchParams]            = useSearchParams();
 
   // URL 검색 파라미터 반영
   useEffect(() => {
@@ -27,25 +82,57 @@ export default function PlayerPage() {
     }
   }, [searchParams]);
 
-  // 검색 필터
-  const filtered = mockPlayers.filter((p) =>
-    p.name.includes(query) || p.team.includes(query) || p.position.includes(query)
-  );
+  // 검색어 변경 시 API 호출
+  useEffect(() => {
+    if (!query.trim()) {
+      setPlayers([]);
+      return;
+    }
+    const timer = setTimeout(async () => {
+      setListLoading(true);
+      try {
+        const data = await fetchPlayers(query);
+        const converted = data.map((p) => {
+          const player = dbToPlayer(p);
+          // 퍼센타일 계산 적용
+          player.stats = player.stats.map((s) => ({
+            ...s,
+            percentile: calcPercentile(s.label, s.value),
+          }));
+          return player;
+        });
+        setPlayers(converted);
+      } catch {
+        setPlayers([]);
+      } finally {
+        setListLoading(false);
+      }
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [query]);
 
-  const selectPlayer = (p: Player) => {
+  const selectPlayer = async (p: Player) => {
     setLoading(true);
     setError(false);
     setShowList(false);
-    setTimeout(() => {
-      setPlayer(p);
+    try {
+      const data = await fetchPlayerById(String(p.id));
+      const converted = dbToPlayer(data);
+      converted.stats = converted.stats.map((s) => ({
+        ...s,
+        percentile: calcPercentile(s.label, s.value),
+      }));
+      setPlayer(converted);
+    } catch {
+      setError(true);
+    } finally {
       setLoading(false);
-    }, 400);
+    }
   };
 
   const handleBack = () => {
     setPlayer(null);
     setShowList(true);
-    setQuery('');
   };
 
   // 선수 목록 화면
@@ -53,31 +140,46 @@ export default function PlayerPage() {
     return (
       <div className="min-h-screen bg-gray-900 px-10 py-8">
         <h1 className="text-white text-3xl font-black mb-2">선수 프로필</h1>
-        <p className="text-gray-400 text-sm mb-6">선수를 검색하거나 선택하세요</p>
+        <p className="text-gray-400 text-sm mb-6">선수 이름 또는 팀명으로 검색하세요</p>
 
-        {/* 검색 결과 표시 */}
-        {query && (
-          <p className="text-gray-400 text-sm mb-4">
-            "<span className="text-orange-400">{query}</span>" 검색 결과
+        {/* 검색창 */}
+        <div className="relative max-w-lg mb-6">
+          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">🔍</span>
+          <input
+            type="text"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="선수 이름 또는 팀명 검색..."
+            className="w-full bg-gray-800 text-white placeholder-gray-500 rounded-lg pl-9 pr-4 py-2.5 text-sm border border-gray-700 focus:outline-none focus:border-orange-400 transition-colors"
+          />
+          {query && (
             <button
               onClick={() => setQuery('')}
-              className="ml-3 text-gray-600 hover:text-gray-400 text-xs"
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-600 hover:text-gray-400 text-xs"
             >
-              ✕ 초기화
+              ✕
             </button>
-          </p>
-        )}
+          )}
+        </div>
 
-        {/* 선수 목록 */}
+        {/* 검색 결과 */}
         <div className="max-w-lg space-y-2">
-          {filtered.length > 0 ? (
-            filtered.map((p) => (
-              <PlayerCard key={p.id} player={p} onClick={selectPlayer} />
-            ))
-          ) : (
-            <p className="text-gray-500 text-sm py-10 text-center">
+          {listLoading ? (
+            <p className="text-gray-500 text-sm text-center py-10 animate-pulse">
+              검색 중...
+            </p>
+          ) : query && players.length === 0 ? (
+            <p className="text-gray-500 text-sm text-center py-10">
               검색 결과가 없습니다
             </p>
+          ) : !query ? (
+            <p className="text-gray-600 text-sm text-center py-10">
+              선수 이름을 입력해서 검색하세요
+            </p>
+          ) : (
+            players.map((p) => (
+              <PlayerCard key={p.id} player={p} onClick={selectPlayer} />
+            ))
           )}
         </div>
       </div>
@@ -96,15 +198,12 @@ export default function PlayerPage() {
       {/* 상단 헤더 */}
       <div className="bg-gradient-to-r from-gray-800 to-gray-900 border-b border-gray-700 px-10 py-8">
         <div className="flex items-center gap-6">
-
-          {/* 뒤로가기 */}
           <button
             onClick={handleBack}
             className="text-gray-400 hover:text-white text-sm transition-colors mr-2"
           >
             ← 목록
           </button>
-
           <div className="w-20 h-20 rounded-full bg-orange-500 flex items-center justify-center shrink-0">
             <span className="text-white text-xs font-black">{player.position}</span>
           </div>
@@ -144,7 +243,9 @@ export default function PlayerPage() {
             ))}
           </div>
           <div className="bg-gray-800 rounded-xl p-6 w-80">
-            <p className="text-gray-400 text-xs mb-2 uppercase tracking-widest text-center">능력치 레이더</p>
+            <p className="text-gray-400 text-xs mb-2 uppercase tracking-widest text-center">
+              능력치 레이더
+            </p>
             <PlayerRadarChart data={player.radar} />
           </div>
         </div>
