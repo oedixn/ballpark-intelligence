@@ -4,9 +4,9 @@ import Scoreboard from '../components/simulator/Scoreboard';
 import GameLogView from '../components/simulator/GameLog';
 import StatsModal from '../components/simulator/StatsModal';
 import { simulateGame, simulateMulti } from '../api/simulatorApi';
+import { saveRecord } from '../api/recordApi';
 import type { GameLog, MultiSimulateResponse } from '../api/simulatorApi';
 
-// 기본 고정 라인업 (나만의 팀에서 데이터 없을 때 사용)
 const DEFAULT_LINEUP_A = [
   { name: "최지훈",   ab: 400, hits: 120, double: 20, triple: 2, hr: 5,  bb: 40, hbp: 3 },
   { name: "최정",     ab: 380, hits: 100, double: 18, triple: 1, hr: 25, bb: 55, hbp: 5 },
@@ -20,21 +20,20 @@ const DEFAULT_LINEUP_A = [
 ];
 
 const DEFAULT_LINEUP_B = [
-  { name: "장두성",  ab: 48,  hits: 16, double: 1, triple: 1, hr: 0, bb: 1,  hbp: 1 },
-  { name: "윤동희",  ab: 75,  hits: 14, double: 4, triple: 0, hr: 3, bb: 6,  hbp: 1 },
+  { name: "장두성",   ab: 48,  hits: 16, double: 1, triple: 1, hr: 0, bb: 1,  hbp: 1 },
+  { name: "윤동희",   ab: 75,  hits: 14, double: 4, triple: 0, hr: 3, bb: 6,  hbp: 1 },
   { name: "레이예스", ab: 113, hits: 39, double: 8, triple: 0, hr: 5, bb: 11, hbp: 2 },
-  { name: "유강남",  ab: 62,  hits: 16, double: 4, triple: 0, hr: 2, bb: 1,  hbp: 0 },
-  { name: "김민성",  ab: 14,  hits: 1,  double: 0, triple: 0, hr: 1, bb: 3,  hbp: 0 },
-  { name: "박승욱",  ab: 32,  hits: 11, double: 2, triple: 0, hr: 1, bb: 1,  hbp: 0 },
-  { name: "전민재",  ab: 77,  hits: 18, double: 3, triple: 0, hr: 0, bb: 7,  hbp: 0 },
-  { name: "손성빈",  ab: 48,  hits: 10, double: 2, triple: 0, hr: 1, bb: 6,  hbp: 0 },
-  { name: "한태양",  ab: 74,  hits: 18, double: 3, triple: 0, hr: 0, bb: 7,  hbp: 1 },
+  { name: "유강남",   ab: 62,  hits: 16, double: 4, triple: 0, hr: 2, bb: 1,  hbp: 0 },
+  { name: "김민성",   ab: 14,  hits: 1,  double: 0, triple: 0, hr: 1, bb: 3,  hbp: 0 },
+  { name: "박승욱",   ab: 32,  hits: 11, double: 2, triple: 0, hr: 1, bb: 1,  hbp: 0 },
+  { name: "전민재",   ab: 77,  hits: 18, double: 3, triple: 0, hr: 0, bb: 7,  hbp: 0 },
+  { name: "손성빈",   ab: 48,  hits: 10, double: 2, triple: 0, hr: 1, bb: 6,  hbp: 0 },
+  { name: "한태양",   ab: 74,  hits: 18, double: 3, triple: 0, hr: 0, bb: 7,  hbp: 1 },
 ];
 
 export default function SimulatorPage() {
   const location = useLocation();
 
-  // 나만의 팀에서 넘어온 데이터가 있으면 사용, 없으면 기본값
   const fromMyTeam = location.state as {
     lineup: typeof DEFAULT_LINEUP_A;
     teamName: string;
@@ -63,6 +62,19 @@ export default function SimulatorPage() {
       });
       setGameLog(res.game_log);
       setStarted(true);
+
+      // 경기 결과 자동 저장
+      const scoreA = res.game_log.final_score[0];
+      const scoreB = res.game_log.final_score[1];
+      const result = scoreA > scoreB ? '승' : scoreA < scoreB ? '패' : '무';
+      await saveRecord({
+        team_name:     teamAName,
+        opponent_name: teamBName,
+        result,
+        my_score:  scoreA,
+        opp_score: scoreB,
+      });
+
     } catch {
       setError('시뮬레이션 중 오류가 발생했습니다.');
     } finally {
@@ -119,8 +131,6 @@ export default function SimulatorPage() {
             <h1 className="text-white text-3xl font-black">경기 시뮬레이터</h1>
             <p className="text-gray-400 text-sm mt-1">마르코프 체인 기반 경기 예측</p>
           </div>
-
-          {/* 팀 매치업 */}
           <div className="flex items-center gap-6">
             <div className="text-right">
               <p className="text-white font-bold">{teamAName}</p>
@@ -146,10 +156,7 @@ export default function SimulatorPage() {
         {fromMyTeam && (
           <div className="mt-4 flex flex-wrap gap-2">
             {teamALineup.map((p, i) => (
-              <span
-                key={i}
-                className="text-xs bg-gray-700 text-gray-300 px-3 py-1 rounded-full"
-              >
+              <span key={i} className="text-xs bg-gray-700 text-gray-300 px-3 py-1 rounded-full">
                 {i + 1}. {p.name}
               </span>
             ))}
@@ -160,14 +167,12 @@ export default function SimulatorPage() {
       {/* 본문 */}
       <div className="px-10 py-8 space-y-6">
 
-        {/* 에러 */}
         {error && (
           <div className="bg-red-900/30 border border-red-700 rounded-xl px-6 py-4 text-red-400">
             {error}
           </div>
         )}
 
-        {/* 시작 전 */}
         {!started && !loading && (
           <div className="flex justify-center py-10">
             <button
@@ -179,14 +184,12 @@ export default function SimulatorPage() {
           </div>
         )}
 
-        {/* 로딩 */}
         {loading && (
           <div className="flex justify-center py-10">
             <p className="text-gray-400 text-lg animate-pulse">⚾ 시뮬레이션 중...</p>
           </div>
         )}
 
-        {/* 경기 결과 */}
         {started && !loading && gameLog && scoreboard && (
           <>
             <Scoreboard away={scoreboard.away} home={scoreboard.home} />
@@ -210,7 +213,6 @@ export default function SimulatorPage() {
         )}
       </div>
 
-      {/* 100경기 통계 모달 */}
       {showStats && multiStats && (
         <StatsModal onClose={() => setShowStats(false)} stats={multiStats} />
       )}

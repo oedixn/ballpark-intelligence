@@ -18,6 +18,8 @@ import LineupCard from '../components/lineup/LineupCard';
 import type { Player } from '../data/mockPlayers';
 import { fetchPlayers } from '../api/playerApi';
 import type { PlayerDB } from '../api/playerApi';
+import { fetchRecords, deleteRecord } from '../api/recordApi';
+import type { GameRecord } from '../api/recordApi';
 
 function dbToPlayer(p: PlayerDB): Player {
   return {
@@ -40,32 +42,17 @@ function dbToPlayer(p: PlayerDB): Player {
       { stat: '수비',   value: 60 },
       { stat: '출루',   value: Math.min(99, Math.round((p.obp     ?? 0) * 200)) },
     ],
-    // 시뮬레이터 연동용 원본 타격 기록
     raw: {
-      ab:     p.ab          ?? 300,
-      hits:   p.h           ?? 80,
-      double: p.double_hit  ?? 15,
-      triple: p.triple_hit  ?? 2,
-      hr:     p.hr          ?? 5,
-      bb:     p.bb          ?? 30,
-      hbp:    p.hbp         ?? 3,
+      ab:     p.ab         ?? 300,
+      hits:   p.h          ?? 80,
+      double: p.double_hit ?? 15,
+      triple: p.triple_hit ?? 2,
+      hr:     p.hr         ?? 5,
+      bb:     p.bb         ?? 30,
+      hbp:    p.hbp        ?? 3,
     },
   };
 }
-
-export interface GameRecord {
-  date: string;
-  opponent: string;
-  result: '승' | '패' | '무';
-  myScore: number;
-  oppScore: number;
-}
-
-const MOCK_RECORDS: GameRecord[] = [
-  { date: '2025.04.21', opponent: 'SSG 랜더스',  result: '승', myScore: 7, oppScore: 3 },
-  { date: '2025.04.19', opponent: '두산 베어스', result: '패', myScore: 2, oppScore: 5 },
-  { date: '2025.04.17', opponent: 'NC 다이노스',  result: '승', myScore: 4, oppScore: 2 },
-];
 
 export default function MyTeamPage() {
   const navigate = useNavigate();
@@ -74,7 +61,7 @@ export default function MyTeamPage() {
   const [results, setResults]           = useState<Player[]>([]);
   const [showDropdown, setShowDropdown] = useState(false);
   const [lineup, setLineup]             = useState<(Player | null)[]>(Array(9).fill(null));
-  const [records]                       = useState<GameRecord[]>(MOCK_RECORDS);
+  const [records, setRecords]           = useState<GameRecord[]>([]);
 
   const searchRef = useRef<HTMLDivElement>(null);
 
@@ -83,6 +70,12 @@ export default function MyTeamPage() {
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
   );
 
+  // 전적 불러오기
+  useEffect(() => {
+    fetchRecords('나만의 팀').then(setRecords).catch(() => {});
+  }, []);
+
+  // 선수 검색
   useEffect(() => {
     if (!query.trim()) {
       setResults([]);
@@ -101,6 +94,7 @@ export default function MyTeamPage() {
     return () => clearTimeout(timer);
   }, [query]);
 
+  // 외부 클릭 드롭다운 닫기
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
       if (searchRef.current && !searchRef.current.contains(e.target as Node)) {
@@ -140,7 +134,15 @@ export default function MyTeamPage() {
     setLineup((prev) => arrayMove(prev, Number(active.id), Number(over.id)));
   }
 
-  // 시뮬레이터로 이동 — raw 타격 기록 전달
+  async function handleDeleteRecord(id: number) {
+    try {
+      await deleteRecord(id);
+      setRecords((prev) => prev.filter((r) => r.id !== id));
+    } catch {
+      alert('삭제에 실패했습니다.');
+    }
+  }
+
   function handleSimulate() {
     if (filledCount !== 9) return;
     const lineupData = filledPlayers.map((p) => ({
@@ -154,10 +156,7 @@ export default function MyTeamPage() {
       hbp:    p.raw?.hbp    ?? 3,
     }));
     navigate('/simulator', {
-      state: {
-        lineup:   lineupData,
-        teamName: '나만의 팀',
-      },
+      state: { lineup: lineupData, teamName: '나만의 팀' },
     });
   }
 
@@ -386,15 +385,17 @@ export default function MyTeamPage() {
                   아직 경기 기록이 없습니다
                 </div>
               ) : (
-                records.map((rec, i) => (
-                  <div key={i} className="bg-gray-800 rounded-xl px-4 py-3 flex items-center justify-between">
+                records.map((rec) => (
+                  <div key={rec.id} className="bg-gray-800 rounded-xl px-4 py-3 flex items-center justify-between">
                     <div>
-                      <div className="text-white text-sm font-semibold">{rec.opponent}</div>
-                      <div className="text-gray-500 text-xs mt-0.5">{rec.date}</div>
+                      <div className="text-white text-sm font-semibold">{rec.opponent_name}</div>
+                      <div className="text-gray-500 text-xs mt-0.5">
+                        {new Date(rec.played_at).toLocaleDateString('ko-KR')}
+                      </div>
                     </div>
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-2">
                       <span className="text-gray-300 text-sm font-bold">
-                        {rec.myScore} : {rec.oppScore}
+                        {rec.my_score} : {rec.opp_score}
                       </span>
                       <span className={`text-xs font-bold px-2 py-0.5 rounded ${
                         rec.result === '승' ? 'bg-blue-500/20 text-blue-400'
@@ -403,6 +404,12 @@ export default function MyTeamPage() {
                       }`}>
                         {rec.result}
                       </span>
+                      <button
+                        onClick={() => handleDeleteRecord(rec.id)}
+                        className="text-gray-600 hover:text-red-400 transition-colors text-xs ml-1"
+                      >
+                        ✕
+                      </button>
                     </div>
                   </div>
                 ))

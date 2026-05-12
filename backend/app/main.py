@@ -272,3 +272,70 @@ def simulate_multi(req: MultiSimulateRequest):
         },
         "n_games": req.n_games,
     }
+
+# ── 전적 기록 스키마 ──────────────────────────────
+class GameRecordCreate(BaseModel):
+    team_name: str
+    opponent_name: str
+    result: str
+    my_score: int
+    opp_score: int
+
+# ── 전적 저장 ─────────────────────────────────────
+@app.post("/api/records")
+def save_record(req: GameRecordCreate):
+    try:
+        conn = get_conn()
+        cur = conn.cursor()
+        cur.execute("""
+            INSERT INTO game_records (team_name, opponent_name, result, my_score, opp_score)
+            VALUES (%s, %s, %s, %s, %s)
+            RETURNING id
+        """, (req.team_name, req.opponent_name, req.result, req.my_score, req.opp_score))
+        record_id = cur.fetchone()[0]
+        conn.commit()
+        cur.close()
+        conn.close()
+        return {"id": record_id, "message": "전적이 저장되었습니다."}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ── 전적 조회 ─────────────────────────────────────
+@app.get("/api/records")
+def get_records(team_name: Optional[str] = None):
+    try:
+        conn = get_conn()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        if team_name:
+            cur.execute("""
+                SELECT * FROM game_records
+                WHERE team_name = %s
+                ORDER BY played_at DESC
+                LIMIT 20
+            """, (team_name,))
+        else:
+            cur.execute("""
+                SELECT * FROM game_records
+                ORDER BY played_at DESC
+                LIMIT 20
+            """)
+        rows = cur.fetchall()
+        cur.close()
+        conn.close()
+        return {"records": [dict(r) for r in rows]}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ── 전적 삭제 ─────────────────────────────────────
+@app.delete("/api/records/{record_id}")
+def delete_record(record_id: int):
+    try:
+        conn = get_conn()
+        cur = conn.cursor()
+        cur.execute("DELETE FROM game_records WHERE id = %s", (record_id,))
+        conn.commit()
+        cur.close()
+        conn.close()
+        return {"message": "삭제되었습니다."}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
