@@ -29,8 +29,8 @@ export default function LineupCard({ player, order }: Props) {
       <span className="text-orange-400 font-black text-lg w-6 shrink-0">{order}</span>
 
       {/* 포지션 뱃지 */}
-      <span className="bg-gray-600 text-gray-300 text-xs font-bold px-2 py-1 rounded w-10 text-center shrink-0">
-        {player.position}
+      <span className="bg-gray-600 text-gray-300 text-xs font-bold px-2 py-1 rounded w-14 text-center shrink-0 whitespace-nowrap">
+      {player.position}
       </span>
 
       {/* 선수명 */}

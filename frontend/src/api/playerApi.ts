@@ -1,23 +1,46 @@
 import axios from 'axios';
 
-const BASE_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8000';
+const api = axios.create({
+  baseURL: 'http://localhost:8000',
+});
 
-const api = axios.create({ baseURL: BASE_URL });
+export interface PlayerDB {
+  player_id: string;
+  player_name: string;
+  team_name: string;
+  season_year: number;
+  avg: number;
+  pa: number;
+  ab: number;
+  h: number;
+  double_hit: number;
+  triple_hit: number;
+  hr: number;
+  bb: number;
+  hbp: number;
+  so: number;
+  slg: number;
+  obp: number;
+  ops: number;
+  isop: number;
+  rbi: number;
+  babip: number | null;
+  bb_rate: number | null;
+  k_rate: number | null;
+  iso: number | null;
+  spd: number | null;
+  war: number | null;
+  woba: number | null;
+  position: string | null;
+}
 
-// 선수 전체 목록
-export const getPlayers = async () => {
-  const res = await api.get('/api/players');
+export async function fetchPlayers(search?: string): Promise<PlayerDB[]> {
+  const params = search ? { search } : {};
+  const res = await api.get<{ players: PlayerDB[] }>('/api/players', { params });
+  return res.data.players;
+}
+
+export async function fetchPlayerById(playerId: string): Promise<PlayerDB> {
+  const res = await api.get<PlayerDB>(`/api/players/${playerId}`);
   return res.data;
-};
-
-// 선수 단건 조회
-export const getPlayerById = async (playerId: number) => {
-  const res = await api.get(`/api/players/${playerId}`);
-  return res.data;
-};
-
-// 선수 이벤트 확률 조회
-export const getPlayerProbs = async (playerId: number) => {
-  const res = await api.get(`/api/players/${playerId}/probs`);
-  return res.data;
-};
+}

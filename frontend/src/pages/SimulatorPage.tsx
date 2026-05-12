@@ -1,36 +1,49 @@
 import { useState } from 'react';
+import { useLocation } from 'react-router-dom';
 import Scoreboard from '../components/simulator/Scoreboard';
 import GameLogView from '../components/simulator/GameLog';
 import StatsModal from '../components/simulator/StatsModal';
 import { simulateGame, simulateMulti } from '../api/simulatorApi';
 import type { GameLog, MultiSimulateResponse } from '../api/simulatorApi';
 
-// 임시 고정 라인업 (추후 나만의 팀 만들기에서 전달받을 예정)
-const SSG_LINEUP = [
-  { name: "최지훈",  ab: 400, hits: 120, double: 20, triple: 2, hr: 5,  bb: 40, hbp: 3 },
-  { name: "최정",    ab: 380, hits: 100, double: 18, triple: 1, hr: 25, bb: 55, hbp: 5 },
-  { name: "한유섬",  ab: 360, hits: 105, double: 22, triple: 0, hr: 18, bb: 35, hbp: 2 },
-  { name: "기예르모",ab: 350, hits: 98,  double: 19, triple: 1, hr: 20, bb: 30, hbp: 1 },
-  { name: "박성한",  ab: 370, hits: 108, double: 21, triple: 2, hr: 8,  bb: 38, hbp: 4 },
-  { name: "오태곤",  ab: 300, hits: 85,  double: 15, triple: 1, hr: 10, bb: 28, hbp: 2 },
-  { name: "김민식",  ab: 280, hits: 75,  double: 12, triple: 0, hr: 7,  bb: 22, hbp: 1 },
-  { name: "이재원",  ab: 260, hits: 68,  double: 10, triple: 0, hr: 5,  bb: 18, hbp: 1 },
-  { name: "고효준",  ab: 240, hits: 60,  double: 8,  triple: 0, hr: 3,  bb: 15, hbp: 0 },
+// 기본 고정 라인업 (나만의 팀에서 데이터 없을 때 사용)
+const DEFAULT_LINEUP_A = [
+  { name: "최지훈",   ab: 400, hits: 120, double: 20, triple: 2, hr: 5,  bb: 40, hbp: 3 },
+  { name: "최정",     ab: 380, hits: 100, double: 18, triple: 1, hr: 25, bb: 55, hbp: 5 },
+  { name: "한유섬",   ab: 360, hits: 105, double: 22, triple: 0, hr: 18, bb: 35, hbp: 2 },
+  { name: "기예르모", ab: 350, hits: 98,  double: 19, triple: 1, hr: 20, bb: 30, hbp: 1 },
+  { name: "박성한",   ab: 370, hits: 108, double: 21, triple: 2, hr: 8,  bb: 38, hbp: 4 },
+  { name: "오태곤",   ab: 300, hits: 85,  double: 15, triple: 1, hr: 10, bb: 28, hbp: 2 },
+  { name: "김민식",   ab: 280, hits: 75,  double: 12, triple: 0, hr: 7,  bb: 22, hbp: 1 },
+  { name: "이재원",   ab: 260, hits: 68,  double: 10, triple: 0, hr: 5,  bb: 18, hbp: 1 },
+  { name: "고효준",   ab: 240, hits: 60,  double: 8,  triple: 0, hr: 3,  bb: 15, hbp: 0 },
 ];
 
-const LOTTE_LINEUP = [
-  { name: "장두성", ab: 48,  hits: 16, double: 1, triple: 1, hr: 0, bb: 1,  hbp: 1 },
-  { name: "윤동희", ab: 75,  hits: 14, double: 4, triple: 0, hr: 3, bb: 6,  hbp: 1 },
-  { name: "레이예스",ab: 113, hits: 39, double: 8, triple: 0, hr: 5, bb: 11, hbp: 2 },
-  { name: "유강남", ab: 62,  hits: 16, double: 4, triple: 0, hr: 2, bb: 1,  hbp: 0 },
-  { name: "김민성", ab: 14,  hits: 1,  double: 0, triple: 0, hr: 1, bb: 3,  hbp: 0 },
-  { name: "박승욱", ab: 32,  hits: 11, double: 2, triple: 0, hr: 1, bb: 1,  hbp: 0 },
-  { name: "전민재", ab: 77,  hits: 18, double: 3, triple: 0, hr: 0, bb: 7,  hbp: 0 },
-  { name: "손성빈", ab: 48,  hits: 10, double: 2, triple: 0, hr: 1, bb: 6,  hbp: 0 },
-  { name: "한태양", ab: 74,  hits: 18, double: 3, triple: 0, hr: 0, bb: 7,  hbp: 1 },
+const DEFAULT_LINEUP_B = [
+  { name: "장두성",  ab: 48,  hits: 16, double: 1, triple: 1, hr: 0, bb: 1,  hbp: 1 },
+  { name: "윤동희",  ab: 75,  hits: 14, double: 4, triple: 0, hr: 3, bb: 6,  hbp: 1 },
+  { name: "레이예스", ab: 113, hits: 39, double: 8, triple: 0, hr: 5, bb: 11, hbp: 2 },
+  { name: "유강남",  ab: 62,  hits: 16, double: 4, triple: 0, hr: 2, bb: 1,  hbp: 0 },
+  { name: "김민성",  ab: 14,  hits: 1,  double: 0, triple: 0, hr: 1, bb: 3,  hbp: 0 },
+  { name: "박승욱",  ab: 32,  hits: 11, double: 2, triple: 0, hr: 1, bb: 1,  hbp: 0 },
+  { name: "전민재",  ab: 77,  hits: 18, double: 3, triple: 0, hr: 0, bb: 7,  hbp: 0 },
+  { name: "손성빈",  ab: 48,  hits: 10, double: 2, triple: 0, hr: 1, bb: 6,  hbp: 0 },
+  { name: "한태양",  ab: 74,  hits: 18, double: 3, triple: 0, hr: 0, bb: 7,  hbp: 1 },
 ];
 
 export default function SimulatorPage() {
+  const location = useLocation();
+
+  // 나만의 팀에서 넘어온 데이터가 있으면 사용, 없으면 기본값
+  const fromMyTeam = location.state as {
+    lineup: typeof DEFAULT_LINEUP_A;
+    teamName: string;
+  } | null;
+
+  const teamALineup = fromMyTeam?.lineup ?? DEFAULT_LINEUP_A;
+  const teamAName   = fromMyTeam?.teamName ?? 'SSG 랜더스';
+  const teamBName   = '롯데 자이언츠';
+
   const [started, setStarted]       = useState(false);
   const [loading, setLoading]       = useState(false);
   const [showStats, setShowStats]   = useState(false);
@@ -43,14 +56,14 @@ export default function SimulatorPage() {
     setError(null);
     try {
       const res = await simulateGame({
-        team_a_name: 'SSG 랜더스',
-        team_a_lineup: SSG_LINEUP,
-        team_b_name: '롯데 자이언츠',
-        team_b_lineup: LOTTE_LINEUP,
+        team_a_name: teamAName,
+        team_a_lineup: teamALineup,
+        team_b_name: teamBName,
+        team_b_lineup: DEFAULT_LINEUP_B,
       });
       setGameLog(res.game_log);
       setStarted(true);
-    } catch (e) {
+    } catch {
       setError('시뮬레이션 중 오류가 발생했습니다.');
     } finally {
       setLoading(false);
@@ -61,43 +74,38 @@ export default function SimulatorPage() {
     setLoading(true);
     try {
       const res = await simulateMulti({
-        team_a_name: 'SSG 랜더스',
-        team_a_lineup: SSG_LINEUP,
-        team_b_name: '롯데 자이언츠',
-        team_b_lineup: LOTTE_LINEUP,
+        team_a_name: teamAName,
+        team_a_lineup: teamALineup,
+        team_b_name: teamBName,
+        team_b_lineup: DEFAULT_LINEUP_B,
         n_games: 1000,
       });
       setMultiStats(res);
       setShowStats(true);
-    } catch (e) {
+    } catch {
       setError('통계 계산 중 오류가 발생했습니다.');
     } finally {
       setLoading(false);
     }
   }
 
-  async function handleReset() {
+  function handleReset() {
     setStarted(false);
     setGameLog(null);
     setMultiStats(null);
     setError(null);
   }
 
-  // Scoreboard 형식으로 변환
   const scoreboard = gameLog ? {
     away: {
-      team: gameLog.team_a,
+      team: teamAName,
+      innings: gameLog.innings.filter((i) => i.half === '초').map((i) => i.runs),
       total: gameLog.final_score[0],
-      innings: gameLog.innings
-        .filter((i) => i.half === '초')
-        .map((i) => i.runs),
     },
     home: {
-      team: gameLog.team_b,
+      team: teamBName,
+      innings: gameLog.innings.filter((i) => i.half === '말').map((i) => i.runs),
       total: gameLog.final_score[1],
-      innings: gameLog.innings
-        .filter((i) => i.half === '말')
-        .map((i) => i.runs),
     },
   } : null;
 
@@ -115,7 +123,7 @@ export default function SimulatorPage() {
           {/* 팀 매치업 */}
           <div className="flex items-center gap-6">
             <div className="text-right">
-              <p className="text-white font-bold">SSG 랜더스</p>
+              <p className="text-white font-bold">{teamAName}</p>
               <p className="text-gray-400 text-xs">원정</p>
             </div>
             <div className="bg-gray-700 rounded-full px-4 py-2">
@@ -128,11 +136,25 @@ export default function SimulatorPage() {
               </span>
             </div>
             <div className="text-left">
-              <p className="text-white font-bold">롯데 자이언츠</p>
+              <p className="text-white font-bold">{teamBName}</p>
               <p className="text-gray-400 text-xs">홈</p>
             </div>
           </div>
         </div>
+
+        {/* 나만의 팀 라인업 표시 */}
+        {fromMyTeam && (
+          <div className="mt-4 flex flex-wrap gap-2">
+            {teamALineup.map((p, i) => (
+              <span
+                key={i}
+                className="text-xs bg-gray-700 text-gray-300 px-3 py-1 rounded-full"
+              >
+                {i + 1}. {p.name}
+              </span>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* 본문 */}

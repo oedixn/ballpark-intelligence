@@ -15,8 +15,43 @@ import {
   arrayMove,
 } from '@dnd-kit/sortable';
 import LineupCard from '../components/lineup/LineupCard';
-import { mockPlayers } from '../data/mockPlayers';
 import type { Player } from '../data/mockPlayers';
+import { fetchPlayers } from '../api/playerApi';
+import type { PlayerDB } from '../api/playerApi';
+
+function dbToPlayer(p: PlayerDB): Player {
+  return {
+    id: Number(p.player_id),
+    name: p.player_name,
+    team: p.team_name,
+    position: p.position ?? '-',
+    stats: [
+      { label: 'wOBA', value: p.woba    ?? 0, percentile: 0, unit: 'wOBA' },
+      { label: 'OPS',  value: p.ops     ?? 0, percentile: 0, unit: 'OPS'  },
+      { label: 'HR',   value: p.hr      ?? 0, percentile: 0, unit: 'HR'   },
+      { label: 'BB%',  value: p.bb_rate ?? 0, percentile: 0, unit: '%'    },
+      { label: 'K%',   value: p.k_rate  ?? 0, percentile: 0, unit: '%'    },
+    ],
+    radar: [
+      { stat: '컨택',   value: Math.min(99, Math.round((p.avg     ?? 0) * 300)) },
+      { stat: '파워',   value: Math.min(99, Math.round((p.iso     ?? 0) * 400)) },
+      { stat: '선구안', value: Math.min(99, Math.round((p.bb_rate ?? 0) * 5))   },
+      { stat: '스피드', value: Math.min(99, Math.round((p.spd     ?? 0) * 10))  },
+      { stat: '수비',   value: 60 },
+      { stat: '출루',   value: Math.min(99, Math.round((p.obp     ?? 0) * 200)) },
+    ],
+    // 시뮬레이터 연동용 원본 타격 기록
+    raw: {
+      ab:     p.ab          ?? 300,
+      hits:   p.h           ?? 80,
+      double: p.double_hit  ?? 15,
+      triple: p.triple_hit  ?? 2,
+      hr:     p.hr          ?? 5,
+      bb:     p.bb          ?? 30,
+      hbp:    p.hbp         ?? 3,
+    },
+  };
+}
 
 export interface GameRecord {
   date: string;
@@ -48,21 +83,24 @@ export default function MyTeamPage() {
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
   );
 
-  // 검색 처리
   useEffect(() => {
     if (!query.trim()) {
       setResults([]);
       setShowDropdown(false);
       return;
     }
-    const filtered = mockPlayers.filter(
-      (p) => p.name.includes(query) || p.team.includes(query)
-    );
-    setResults(filtered);
-    setShowDropdown(true);
+    const timer = setTimeout(async () => {
+      try {
+        const data = await fetchPlayers(query);
+        setResults(data.map(dbToPlayer));
+        setShowDropdown(true);
+      } catch {
+        setResults([]);
+      }
+    }, 300);
+    return () => clearTimeout(timer);
   }, [query]);
 
-  // 외부 클릭 시 드롭다운 닫기
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
       if (searchRef.current && !searchRef.current.contains(e.target as Node)) {
@@ -73,7 +111,6 @@ export default function MyTeamPage() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // 선수 선택 → 첫 번째 빈 슬롯에 배치
   function handleSelect(player: Player) {
     if (lineup.some((p) => p?.id === player.id)) {
       alert('이미 추가된 선수입니다.');
@@ -91,23 +128,39 @@ export default function MyTeamPage() {
     setShowDropdown(false);
   }
 
-  // 선수 제거
   function handleRemove(idx: number) {
     const next = [...lineup];
     next[idx] = null;
     setLineup(next);
   }
 
-  // 드래그앤드롭 — null 슬롯 포함해서 순서 이동
   function handleDragEnd(event: any) {
     const { active, over } = event;
     if (!over || active.id === over.id) return;
-    const oldIdx = Number(active.id);
-    const newIdx = Number(over.id);
-    setLineup((prev) => arrayMove(prev, oldIdx, newIdx));
+    setLineup((prev) => arrayMove(prev, Number(active.id), Number(over.id)));
   }
 
-  // 통계 계산
+  // 시뮬레이터로 이동 — raw 타격 기록 전달
+  function handleSimulate() {
+    if (filledCount !== 9) return;
+    const lineupData = filledPlayers.map((p) => ({
+      name:   p.name,
+      ab:     p.raw?.ab     ?? 300,
+      hits:   p.raw?.hits   ?? 80,
+      double: p.raw?.double ?? 15,
+      triple: p.raw?.triple ?? 2,
+      hr:     p.raw?.hr     ?? 5,
+      bb:     p.raw?.bb     ?? 30,
+      hbp:    p.raw?.hbp    ?? 3,
+    }));
+    navigate('/simulator', {
+      state: {
+        lineup:   lineupData,
+        teamName: '나만의 팀',
+      },
+    });
+  }
+
   const filledPlayers = lineup.filter((p): p is Player => p !== null);
   const filledCount   = filledPlayers.length;
 
@@ -134,7 +187,7 @@ export default function MyTeamPage() {
             </p>
           </div>
           <button
-            onClick={() => filledCount === 9 && navigate('/simulator')}
+            onClick={handleSimulate}
             className={`font-black px-8 py-3 rounded-xl transition-colors ${
               filledCount === 9
                 ? 'bg-orange-500 hover:bg-orange-600 text-white'
@@ -150,16 +203,14 @@ export default function MyTeamPage() {
       {/* 본문 */}
       <div className="px-10 py-8 flex gap-8">
 
-        {/* 왼쪽: 검색 + 타순 배치 */}
+        {/* 왼쪽 */}
         <div className="flex-1 space-y-6">
 
           {/* 선수 검색 */}
           <div>
             <p className="text-gray-400 text-xs mb-3 uppercase tracking-widest">선수 검색</p>
             <div ref={searchRef} className="relative">
-              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm z-10">
-                🔍
-              </span>
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm z-10">🔍</span>
               <input
                 type="text"
                 value={query}
@@ -169,7 +220,6 @@ export default function MyTeamPage() {
                 className="w-full bg-gray-800 text-white placeholder-gray-500 rounded-lg pl-9 pr-4 py-2.5 text-sm border border-gray-700 focus:outline-none focus:border-orange-400 transition-colors"
               />
 
-              {/* 검색 드롭다운 */}
               {showDropdown && results.length > 0 && (
                 <div className="absolute top-full left-0 right-0 mt-1 bg-gray-800 border border-gray-700 rounded-xl shadow-xl overflow-hidden z-50 max-h-64 overflow-y-auto">
                   {results.map((player) => {
@@ -193,9 +243,7 @@ export default function MyTeamPage() {
                           <div>
                             <div className="text-white font-semibold text-sm">
                               {player.name}
-                              {alreadyAdded && (
-                                <span className="ml-2 text-xs text-gray-500">추가됨</span>
-                              )}
+                              {alreadyAdded && <span className="ml-2 text-xs text-gray-500">추가됨</span>}
                             </div>
                             <div className="text-gray-400 text-xs">{player.team}</div>
                           </div>
@@ -219,7 +267,6 @@ export default function MyTeamPage() {
               )}
             </div>
 
-            {/* 진행 바 */}
             <div className="mt-3 flex items-center gap-3">
               <div className="flex-1 h-1 bg-gray-700 rounded-full overflow-hidden">
                 <div
@@ -279,7 +326,7 @@ export default function MyTeamPage() {
           </div>
         </div>
 
-        {/* 오른쪽: 팀 요약 + 전적 */}
+        {/* 오른쪽 */}
         <div className="w-72 space-y-6">
 
           {/* 팀 스탯 요약 */}
