@@ -1,3 +1,5 @@
+const KBO_TEAMS = ['LG', 'KIA', 'SSG', '한화', 'NC', 'KT', '삼성', '롯데', '두산', '키움'];
+
 import { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -62,6 +64,8 @@ export default function MyTeamPage() {
   const [showDropdown, setShowDropdown] = useState(false);
   const [lineup, setLineup]             = useState<(Player | null)[]>(Array(9).fill(null));
   const [records, setRecords]           = useState<GameRecord[]>([]);
+  const [teamName, setTeamName]         = useState('나만의 팀');
+  const [opponent, setOpponent]         = useState('롯데');
 
   const searchRef = useRef<HTMLDivElement>(null);
 
@@ -85,6 +89,7 @@ export default function MyTeamPage() {
     const timer = setTimeout(async () => {
       try {
         const data = await fetchPlayers(query);
+        const KBO_TEAMS = ['LG','KIA','SSG','한화','NC','KT','삼성','롯데','두산','키움'];
         setResults(data.map(dbToPlayer));
         setShowDropdown(true);
       } catch {
@@ -144,21 +149,25 @@ export default function MyTeamPage() {
   }
 
   function handleSimulate() {
-    if (filledCount !== 9) return;
-    const lineupData = filledPlayers.map((p) => ({
-      name:   p.name,
-      ab:     p.raw?.ab     ?? 300,
-      hits:   p.raw?.hits   ?? 80,
-      double: p.raw?.double ?? 15,
-      triple: p.raw?.triple ?? 2,
-      hr:     p.raw?.hr     ?? 5,
-      bb:     p.raw?.bb     ?? 30,
-      hbp:    p.raw?.hbp    ?? 3,
-    }));
-    navigate('/simulator', {
-      state: { lineup: lineupData, teamName: '나만의 팀' },
-    });
-  }
+  if (filledCount !== 9) return;
+  const lineupData = filledPlayers.map((p) => ({
+    name:   p.name,
+    ab:     p.raw?.ab     ?? 300,
+    hits:   p.raw?.hits   ?? 80,
+    double: p.raw?.double ?? 15,
+    triple: p.raw?.triple ?? 2,
+    hr:     p.raw?.hr     ?? 5,
+    bb:     p.raw?.bb     ?? 30,
+    hbp:    p.raw?.hbp    ?? 3,
+  }));
+  navigate('/simulator', {
+    state: {
+      lineup:   lineupData,
+      teamName: teamName.trim() || '나만의 팀',
+      opponent: opponent,
+    },
+  });
+}
 
   const filledPlayers = lineup.filter((p): p is Player => p !== null);
   const filledCount   = filledPlayers.length;
@@ -176,28 +185,55 @@ export default function MyTeamPage() {
   return (
     <div className="min-h-screen bg-gray-900">
 
-      {/* 헤더 */}
-      <div className="bg-gradient-to-r from-gray-800 to-gray-900 border-b border-gray-700 px-10 py-8">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-white text-3xl font-black">나만의 팀 만들기</h1>
-            <p className="text-gray-400 text-sm mt-1">
-              KBO 선수로 드림팀을 구성하고 시뮬레이션을 돌려보세요
-            </p>
-          </div>
-          <button
-            onClick={handleSimulate}
-            className={`font-black px-8 py-3 rounded-xl transition-colors ${
-              filledCount === 9
-                ? 'bg-orange-500 hover:bg-orange-600 text-white'
-                : 'bg-gray-700 text-gray-500 cursor-not-allowed'
-            }`}
-            disabled={filledCount !== 9}
-          >
-            ▶ 이 타순으로 시뮬레이션
-          </button>
-        </div>
+{/* 헤더 */}
+<div className="bg-gradient-to-r from-gray-800 to-gray-900 border-b border-gray-700 px-10 py-8">
+  <div className="flex items-center justify-between">
+    <div>
+      <h1 className="text-white text-3xl font-black">나만의 팀 만들기</h1>
+      <p className="text-gray-400 text-sm mt-1">
+        KBO 선수로 드림팀을 구성하고 시뮬레이션을 돌려보세요
+      </p>
+    </div>
+    <div className="flex flex-col items-end gap-3">
+      {/* 팀 이름 입력 */}
+      <div className="flex items-center gap-2">
+        <span className="text-gray-400 text-sm">팀 이름</span>
+        <input
+          type="text"
+          value={teamName}
+          onChange={(e) => setTeamName(e.target.value)}
+          placeholder="나만의 팀"
+          className="bg-gray-800 text-white text-sm border border-gray-700 rounded-lg px-3 py-1.5 focus:outline-none focus:border-orange-400 transition-colors w-36"
+        />
       </div>
+      {/* 상대팀 선택 */}
+      <div className="flex items-center gap-2">
+        <span className="text-gray-400 text-sm">상대팀</span>
+        <select
+          value={opponent}
+          onChange={(e) => setOpponent(e.target.value)}
+          className="bg-gray-800 text-white text-sm border border-gray-700 rounded-lg px-3 py-1.5 focus:outline-none focus:border-orange-400 transition-colors w-36"
+        >
+          {KBO_TEAMS.map((t) => (
+            <option key={t} value={t}>{t}</option>
+          ))}
+        </select>
+      </div>
+      {/* 시뮬레이션 버튼 */}
+      <button
+        onClick={handleSimulate}
+        className={`font-black px-8 py-3 rounded-xl transition-colors ${
+          filledCount === 9
+            ? 'bg-orange-500 hover:bg-orange-600 text-white'
+            : 'bg-gray-700 text-gray-500 cursor-not-allowed'
+        }`}
+        disabled={filledCount !== 9}
+      >
+        ▶ 이 타순으로 시뮬레이션
+      </button>
+    </div>
+  </div>
+</div>
 
       {/* 본문 */}
       <div className="px-10 py-8 flex gap-8">

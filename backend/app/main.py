@@ -339,3 +339,39 @@ def delete_record(record_id: int):
         return {"message": "삭제되었습니다."}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+    
+    # ── 팀별 라인업 조회 (시뮬레이터용) ──────────────
+@app.get("/api/teams/{team_name}/lineup")
+def get_team_lineup(team_name: str):
+    try:
+        conn = get_conn()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("""
+            SELECT
+                p.player_name,
+                pst.ab,
+                pst.h      AS hits,
+                pst.double_hit AS double,
+                pst.triple_hit AS triple,
+                pst.hr,
+                pst.bb,
+                pst.hbp
+            FROM players p
+            JOIN player_hitter_stats pst ON p.player_id = pst.player_id
+            JOIN teams t ON pst.team_id = t.team_id
+            WHERE t.team_name = %s
+              AND pst.season_year = 2021
+              AND pst.pa >= 100
+            ORDER BY pst.pa DESC
+            LIMIT 9
+        """, (team_name,))
+        rows = cur.fetchall()
+        cur.close()
+        conn.close()
+        if not rows:
+            raise HTTPException(status_code=404, detail="팀을 찾을 수 없습니다.")
+        return {"lineup": [dict(r) for r in rows]}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

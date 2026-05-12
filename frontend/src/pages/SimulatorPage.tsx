@@ -4,6 +4,7 @@ import Scoreboard from '../components/simulator/Scoreboard';
 import StatsModal from '../components/simulator/StatsModal';
 import { simulateGame, simulateMulti } from '../api/simulatorApi';
 import { saveRecord } from '../api/recordApi';
+import { fetchTeamLineup } from '../api/playerApi';
 import type { GameLog, InningLog, PlateAppearance, MultiSimulateResponse } from '../api/simulatorApi';
 
 const DEFAULT_LINEUP_A = [
@@ -87,25 +88,32 @@ function buildEvents(innings: InningLog[]): FlatEvent[] {
 }
 
 export default function SimulatorPage() {
-  const location  = useLocation();
-  const fromMyTeam = location.state as { lineup: typeof DEFAULT_LINEUP_A; teamName: string } | null;
-  const teamALineup = fromMyTeam?.lineup ?? DEFAULT_LINEUP_A;
-  const teamAName   = fromMyTeam?.teamName ?? 'SSG 랜더스';
-  const teamBName   = '롯데 자이언츠';
+  const location   = useLocation();
+  const fromMyTeam = location.state as {
+    lineup:   typeof DEFAULT_LINEUP_A;
+    teamName: string;
+    opponent: string;
+  } | null;
 
-  const [loading, setLoading]       = useState(false);
-  const [showStats, setShowStats]   = useState(false);
-  const [gameLog, setGameLog]       = useState<GameLog | null>(null);
-  const [multiStats, setMultiStats] = useState<MultiSimulateResponse | null>(null);
-  const [error, setError]           = useState<string | null>(null);
+  const teamALineup  = fromMyTeam?.lineup    ?? DEFAULT_LINEUP_A;
+  const teamAName    = fromMyTeam?.teamName  ?? 'SSG 랜더스';
+  const opponentName = fromMyTeam?.opponent  ?? '롯데';
+  const teamBName    = opponentName;
+
+  const [teamBLineup, setTeamBLineup] = useState(DEFAULT_LINEUP_B);
+  const [loading, setLoading]         = useState(false);
+  const [showStats, setShowStats]     = useState(false);
+  const [gameLog, setGameLog]         = useState<GameLog | null>(null);
+  const [multiStats, setMultiStats]   = useState<MultiSimulateResponse | null>(null);
+  const [error, setError]             = useState<string | null>(null);
 
   // 문자중계 애니메이션 상태
-  const [displayed, setDisplayed]   = useState<FlatEvent[]>([]);
-  const [currentPA, setCurrentPA]   = useState<PlateAppearance | null>(null);
-  const [banner, setBanner]         = useState<PlateAppearance | null>(null);
-  const [paused, setPaused]         = useState(false);
-  const [done, setDone]             = useState(false);
-  const [speed, setSpeed]           = useState(1);
+  const [displayed, setDisplayed] = useState<FlatEvent[]>([]);
+  const [currentPA, setCurrentPA] = useState<PlateAppearance | null>(null);
+  const [banner, setBanner]       = useState<PlateAppearance | null>(null);
+  const [paused, setPaused]       = useState(false);
+  const [done, setDone]           = useState(false);
+  const [speed, setSpeed]         = useState(1);
 
   const eventsRef   = useRef<FlatEvent[]>([]);
   const idxRef      = useRef(0);
@@ -115,9 +123,21 @@ export default function SimulatorPage() {
   const bannerTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const bottomRef   = useRef<HTMLDivElement>(null);
 
+  // 상대팀 라인업 DB에서 불러오기
+  useEffect(() => {
+    fetchTeamLineup(opponentName)
+      .then(setTeamBLineup)
+      .catch(() => setTeamBLineup(DEFAULT_LINEUP_B));
+  }, [opponentName]);
+
+  // 자동 스크롤
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [displayed]);
+
   function tick() {
     if (pausedRef.current) return;
-    const idx = idxRef.current;
+    const idx    = idxRef.current;
     const events = eventsRef.current;
     if (idx >= events.length) {
       setDone(true);
@@ -140,7 +160,7 @@ export default function SimulatorPage() {
   function startAnimation(innings: InningLog[]) {
     if (timerRef.current) clearTimeout(timerRef.current);
     eventsRef.current = buildEvents(innings);
-    idxRef.current = 0;
+    idxRef.current    = 0;
     pausedRef.current = false;
     setDisplayed([]);
     setCurrentPA(null);
@@ -150,11 +170,6 @@ export default function SimulatorPage() {
     timerRef.current = setTimeout(tick, SPEEDS[speedRef.current]);
   }
 
-  // 자동 스크롤
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [displayed]);
-
   async function handleStart() {
     setLoading(true);
     setError(null);
@@ -162,10 +177,10 @@ export default function SimulatorPage() {
     setDisplayed([]);
     try {
       const res = await simulateGame({
-        team_a_name: teamAName,
+        team_a_name:   teamAName,
         team_a_lineup: teamALineup,
-        team_b_name: teamBName,
-        team_b_lineup: DEFAULT_LINEUP_B,
+        team_b_name:   teamBName,
+        team_b_lineup: teamBLineup,
       });
       setGameLog(res.game_log);
       startAnimation(res.game_log.innings);
@@ -173,7 +188,13 @@ export default function SimulatorPage() {
       const scoreA = res.game_log.final_score[0];
       const scoreB = res.game_log.final_score[1];
       const result = scoreA > scoreB ? '승' : scoreA < scoreB ? '패' : '무';
-      await saveRecord({ team_name: teamAName, opponent_name: teamBName, result, my_score: scoreA, opp_score: scoreB });
+      await saveRecord({
+        team_name:     teamAName,
+        opponent_name: teamBName,
+        result,
+        my_score:  scoreA,
+        opp_score: scoreB,
+      });
     } catch {
       setError('시뮬레이션 중 오류가 발생했습니다.');
     } finally {
@@ -185,8 +206,11 @@ export default function SimulatorPage() {
     setLoading(true);
     try {
       const res = await simulateMulti({
-        team_a_name: teamAName, team_a_lineup: teamALineup,
-        team_b_name: teamBName, team_b_lineup: DEFAULT_LINEUP_B, n_games: 1000,
+        team_a_name:   teamAName,
+        team_a_lineup: teamALineup,
+        team_b_name:   teamBName,
+        team_b_lineup: teamBLineup,
+        n_games: 1000,
       });
       setMultiStats(res);
       setShowStats(true);
@@ -229,8 +253,16 @@ export default function SimulatorPage() {
   }
 
   const scoreboard = gameLog ? {
-    away: { team: teamAName, innings: gameLog.innings.filter(i => i.half === '초').map(i => i.runs), total: gameLog.final_score[0] },
-    home: { team: teamBName, innings: gameLog.innings.filter(i => i.half === '말').map(i => i.runs), total: gameLog.final_score[1] },
+    away: {
+      team:    teamAName,
+      innings: gameLog.innings.filter(i => i.half === '초').map(i => i.runs),
+      total:   gameLog.final_score[0],
+    },
+    home: {
+      team:    teamBName,
+      innings: gameLog.innings.filter(i => i.half === '말').map(i => i.runs),
+      total:   gameLog.final_score[1],
+    },
   } : null;
 
   return (
@@ -262,19 +294,28 @@ export default function SimulatorPage() {
             <p className="text-gray-400 text-sm mt-1">마르코프 체인 기반 경기 예측</p>
           </div>
           <div className="flex items-center gap-6">
-            <div className="text-right"><p className="text-white font-bold">{teamAName}</p><p className="text-gray-400 text-xs">원정</p></div>
+            <div className="text-right">
+              <p className="text-white font-bold">{teamAName}</p>
+              <p className="text-gray-400 text-xs">원정</p>
+            </div>
             <div className="bg-gray-700 rounded-full px-4 py-2">
               <span className="text-orange-400 font-black text-xl">{gameLog ? gameLog.final_score[0] : '-'}</span>
               <span className="text-gray-500 mx-2">:</span>
               <span className="text-orange-400 font-black text-xl">{gameLog ? gameLog.final_score[1] : '-'}</span>
             </div>
-            <div className="text-left"><p className="text-white font-bold">{teamBName}</p><p className="text-gray-400 text-xs">홈</p></div>
+            <div className="text-left">
+              <p className="text-white font-bold">{teamBName}</p>
+              <p className="text-gray-400 text-xs">홈</p>
+            </div>
           </div>
         </div>
+
         {fromMyTeam && (
           <div className="mt-4 flex flex-wrap gap-2">
             {teamALineup.map((p, i) => (
-              <span key={i} className="text-xs bg-gray-700 text-gray-300 px-3 py-1 rounded-full">{i + 1}. {p.name}</span>
+              <span key={i} className="text-xs bg-gray-700 text-gray-300 px-3 py-1 rounded-full">
+                {i + 1}. {p.name}
+              </span>
             ))}
           </div>
         )}
@@ -282,7 +323,9 @@ export default function SimulatorPage() {
 
       {/* 본문 */}
       <div className="px-10 py-8 space-y-6">
-        {error && <div className="bg-red-900/30 border border-red-700 rounded-xl px-6 py-4 text-red-400">{error}</div>}
+        {error && (
+          <div className="bg-red-900/30 border border-red-700 rounded-xl px-6 py-4 text-red-400">{error}</div>
+        )}
 
         {!gameLog && !loading && (
           <div className="flex justify-center py-10">
@@ -317,8 +360,14 @@ export default function SimulatorPage() {
                     ))}
                   </div>
                 </div>
-                <div><p className="text-gray-500 text-xs mb-1">주자</p><p className="text-white text-sm font-bold">{currentPA.bases_after}</p></div>
-                <div className="ml-auto"><p className="text-gray-500 text-xs mb-1">현재 타자</p><p className="text-white text-sm font-bold">{currentPA.batter_name}</p></div>
+                <div>
+                  <p className="text-gray-500 text-xs mb-1">주자</p>
+                  <p className="text-white text-sm font-bold">{currentPA.bases_after}</p>
+                </div>
+                <div className="ml-auto">
+                  <p className="text-gray-500 text-xs mb-1">현재 타자</p>
+                  <p className="text-white text-sm font-bold">{currentPA.batter_name}</p>
+                </div>
               </div>
             )}
 
@@ -328,7 +377,7 @@ export default function SimulatorPage() {
                 <p className="text-gray-400 text-xs uppercase tracking-widest">경기 로그</p>
                 <div className="flex items-center gap-2">
                   <div className="flex gap-1">
-                    {['느리게','보통','빠르게'].map((label, sIdx) => (
+                    {['느리게', '보통', '빠르게'].map((label, sIdx) => (
                       <button key={sIdx} onClick={() => handleSpeed(sIdx)} className="text-xs px-2 py-1 rounded"
                         style={{ background: speed === sIdx ? '#f97316' : '#374151', color: speed === sIdx ? '#fff' : '#9ca3af' }}>
                         {label}
@@ -341,6 +390,7 @@ export default function SimulatorPage() {
                   </button>
                 </div>
               </div>
+
               <div className="space-y-1 max-h-96 overflow-y-auto pr-2">
                 {displayed.map((ev, evIdx) => {
                   const evKey = `ev-${evIdx}`;
@@ -356,7 +406,7 @@ export default function SimulatorPage() {
                     );
                   }
                   if (!ev.pa) return null;
-                  const pa = ev.pa;
+                  const pa    = ev.pa;
                   const badge = eventBadgeStyle[pa.event] ?? { background:'#374151', color:'#9ca3af' };
                   return (
                     <div key={evKey} className="pa-row flex items-center gap-3 text-sm py-1.5 border-b border-gray-700/50 last:border-0">
@@ -367,7 +417,9 @@ export default function SimulatorPage() {
                       </span>
                       <span className="text-gray-600 text-xs flex-1">{pa.outs_after}아웃 · {pa.bases_after}</span>
                       {pa.runs_scored > 0 && (
-                        <span style={{ color:'#f97316', fontSize:'0.75rem', fontWeight:700, marginLeft:'auto' }}>+{pa.runs_scored}점 ★</span>
+                        <span style={{ color:'#f97316', fontSize:'0.75rem', fontWeight:700, marginLeft:'auto' }}>
+                          +{pa.runs_scored}점 ★
+                        </span>
                       )}
                     </div>
                   );
@@ -388,7 +440,9 @@ export default function SimulatorPage() {
         )}
       </div>
 
-      {showStats && multiStats && <StatsModal onClose={() => setShowStats(false)} stats={multiStats} />}
+      {showStats && multiStats && (
+        <StatsModal onClose={() => setShowStats(false)} stats={multiStats} />
+      )}
     </div>
   );
 }
