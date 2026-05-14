@@ -61,3 +61,16 @@ export async function fetchTeamLineup(teamName: string): Promise<{
     hbp:    p.hbp    ?? 3,
   }));
 }
+
+export async function optimizeLineup(lineup: {
+  name: string; ab: number; hits: number; double: number;
+  triple: number; hr: number; bb: number; hbp: number;
+}[]): Promise<{ optimized_order: string[] }> {
+  const res = await api.post('/api/lineup/optimize', {
+    team_a_name: '최적화',
+    team_a_lineup: lineup,
+    team_b_name: '최적화',
+    team_b_lineup: [],
+  });
+  return res.data;
+}

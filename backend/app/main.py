@@ -6,6 +6,9 @@ import sys
 import os
 import psycopg2
 import psycopg2.extras
+import math
+from itertools import permutations
+
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from game_simulator.simulator_main import (
@@ -228,12 +231,20 @@ def simulate_game(req: SimulateRequest):
         team_b_lineup=team_b,
     )
 
-    game_log = match.simulate_game(innings=req.innings)
+    # 9이닝 정규 + 최대 12이닝 연장
+    game_log = match.simulate_game(innings=12)
+
+    score_a = game_log.final_score[0]
+    score_b = game_log.final_score[1]
+
+    # 무승부 여부
+    is_draw = score_a == score_b
 
     return {
         "team_a_name": req.team_a_name,
         "team_b_name": req.team_b_name,
         "game_log": game_log,
+        "is_draw": is_draw,
     }
 
 # ── 다중 경기 시뮬레이션 (통계) ──────────────────
@@ -373,5 +384,50 @@ def get_team_lineup(team_name: str):
         return {"lineup": [dict(r) for r in rows]}
     except HTTPException:
         raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ── 타순 최적화 (휴리스틱 방식) ──────────────────
+@app.post("/api/lineup/optimize")
+def optimize_lineup(req: SimulateRequest):
+    try:
+        lineup = [record_to_player_prob(BattingRecord(**p.dict())) for p in req.team_a_lineup]
+
+        def obp(p):
+            return p.bb + p.single + p.double + p.triple + p.hr
+
+        def ops(p):
+            return obp(p) + p.single + 2*p.double + 3*p.triple + 4*p.hr
+
+        def hr_rate(p):
+            return p.hr
+
+        sorted_by_obp = sorted(lineup, key=obp, reverse=True)
+        sorted_by_ops = sorted(lineup, key=ops, reverse=True)
+        sorted_by_hr  = sorted(lineup, key=hr_rate, reverse=True)
+
+        used = set()
+        result = []
+
+        def pick(candidates):
+            for p in candidates:
+                if p.name not in used:
+                    used.add(p.name)
+                    result.append(p)
+                    return
+
+        pick(sorted_by_obp)  # 1번: 출루율 최고
+        pick(sorted_by_ops)  # 2번: OPS 중 미사용
+        pick(sorted_by_ops)  # 3번: OPS 중 미사용
+        pick(sorted_by_hr)   # 4번: HR 최고 (클린업)
+        pick(sorted_by_hr)   # 5번: HR 2위
+        for p in sorted_by_ops:
+            if p.name not in used:
+                result.append(p)
+                used.add(p.name)
+
+        return {
+            "optimized_order": [p.name for p in result],
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

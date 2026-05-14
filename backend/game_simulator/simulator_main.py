@@ -604,6 +604,10 @@ class MatchSimulator:#두 팀의 경기를 시뮬레이션하는 클래스
             if inning >= innings and team_a_score != team_b_score:
                 break
 
+            # 최대 이닝 초과 시 무승부 종료
+            if inning >= innings:
+                break
+
             # 다음 이닝 진행
             inning += 1
 
