@@ -17,14 +17,14 @@ interface Game {
 }
 
 const KBO_TEAM_MAP: Record<string, string> = {
-  'KIA 타이거즈': 'KIA',
-  'SSG 랜더스':   'SSG',
-  'LG 트윈스':    'LG',
-  'KT 위즈':      'KT',
-  'NC 다이노스':  'NC',
-  '두산 베어스':  '두산',
+  'KIA 타이거즈':  'KIA',
+  'SSG 랜더스':    'SSG',
+  'LG 트윈스':     'LG',
+  'KT 위즈':       'KT',
+  'NC 다이노스':   'NC',
+  '두산 베어스':   '두산',
   '삼성 라이온즈': '삼성',
-  '한화 이글스':  '한화',
+  '한화 이글스':   '한화',
   '롯데 자이언츠': '롯데',
   '키움 히어로즈': '키움',
 };
@@ -32,6 +32,7 @@ const KBO_TEAM_MAP: Record<string, string> = {
 function toDbTeamName(name: string): string {
   return KBO_TEAM_MAP[name] ?? name;
 }
+
 const features = [
   {
     icon: '👤',
@@ -58,37 +59,39 @@ export default function HomePage() {
 
   const now = new Date();
 
-  // 선택된 날짜 (Date 객체)
-  const [selectedDate, setSelectedDate] = useState<Date>(now);
+  const [selectedDate, setSelectedDate]   = useState<Date>(now);
+  const [monthCache, setMonthCache]       = useState<Record<string, Game[]>>({});
+  const [loadingGames, setLoadingGames]   = useState(false);
+  const [lastUpdated, setLastUpdated]     = useState<Date | null>(null);
 
-  // 월별 캐시: { "05": Game[] }
-  const [monthCache, setMonthCache] = useState<Record<string, Game[]>>({});
-  const [loadingGames, setLoadingGames] = useState(false);
-
-  const getMonth = (d: Date) => String(d.getMonth() + 1).padStart(2, '0');
-  const getDay   = (d: Date) => String(d.getDate()).padStart(2, '0');
+  const getMonth   = (d: Date) => String(d.getMonth() + 1).padStart(2, '0');
+  const getDay     = (d: Date) => String(d.getDate()).padStart(2, '0');
   const getDateKey = (d: Date) => `${getMonth(d)}.${getDay(d)}`;
 
   const selectedMonth = getMonth(selectedDate);
   const selectedKey   = getDateKey(selectedDate);
 
-  // 월 데이터 로드 (캐시 활용)
   useEffect(() => {
-    if (monthCache[selectedMonth]) return;
+    const fetchMonth = () => {
+      api.get(`/api/schedule?month=${selectedMonth}`)
+        .then(res => {
+          setMonthCache(prev => ({ ...prev, [selectedMonth]: res.data.games }));
+          setLastUpdated(new Date());
+        })
+        .catch(() => {})
+        .finally(() => setLoadingGames(false));
+    };
+
     setLoadingGames(true);
-    api.get(`/api/schedule?month=${selectedMonth}`)
-      .then(res => {
-        setMonthCache(prev => ({ ...prev, [selectedMonth]: res.data.games }));
-      })
-      .catch(() => {})
-      .finally(() => setLoadingGames(false));
+    fetchMonth();
+
+    const interval = setInterval(fetchMonth, 60000);
+    return () => clearInterval(interval);
   }, [selectedMonth]);
 
-  // 선택된 날짜의 경기만 필터
-  const allGames = monthCache[selectedMonth] ?? [];
+  const allGames   = monthCache[selectedMonth] ?? [];
   const todayGames = allGames.filter(g => g.date.startsWith(selectedKey));
 
-  // 날짜 이동
   const moveDay = (delta: number) => {
     setSelectedDate(prev => {
       const next = new Date(prev);
@@ -152,7 +155,7 @@ export default function HomePage() {
         </div>
 
         {/* 경기 일정 헤더 */}
-        <div className="flex items-center gap-4 mb-6">
+        <div className="flex items-center gap-4 mb-6 flex-wrap">
           <h2 className="text-white text-2xl font-black">KBO 경기 일정</h2>
 
           {/* 날짜 네비게이터 */}
@@ -189,6 +192,15 @@ export default function HomePage() {
               </button>
             )}
           </div>
+
+          {/* 마지막 업데이트 시간 */}
+          {lastUpdated && (
+            <span className="ml-auto text-gray-600 text-xs">
+              🔄 {lastUpdated.toLocaleTimeString('ko-KR', {
+                hour: '2-digit', minute: '2-digit', second: '2-digit'
+              })} 업데이트
+            </span>
+          )}
         </div>
 
         {/* 경기 목록 */}
@@ -214,12 +226,10 @@ export default function HomePage() {
                 key={i}
                 className="bg-gray-800 rounded-xl px-6 py-4 flex items-center gap-6"
               >
-                {/* 시간 */}
                 <span className="text-orange-400 font-bold text-sm w-14 shrink-0">
                   {game.time}
                 </span>
 
-                {/* 매치업 + 스코어 */}
                 <div className="flex items-center gap-3 flex-1">
                   <span className={`font-semibold ${aWin ? 'text-white' : 'text-gray-400'}`}>
                     {game.team_a}
@@ -240,21 +250,21 @@ export default function HomePage() {
                   </span>
                 </div>
 
-                {/* 구장 */}
                 <span className="text-gray-500 text-xs shrink-0">{game.stadium}</span>
 
-                {/* 결과 or 시뮬레이션 버튼 */}
                 {finished ? (
                   <span className="text-orange-400 text-xs font-bold shrink-0 w-20 text-right">
                     {game.result}
                   </span>
                 ) : (
                   <button
-                    onClick={() => navigate(`/simulator?team_a=${encodeURIComponent(game.team_a)}&team_b=${encodeURIComponent(game.team_b)}`)}
+                    onClick={() => navigate(
+                      `/simulator?team_a=${encodeURIComponent(toDbTeamName(game.team_a))}&team_b=${encodeURIComponent(toDbTeamName(game.team_b))}`
+                    )}
                     className="bg-gray-700 hover:bg-orange-500 text-gray-300 hover:text-white text-xs font-bold px-4 py-2 rounded-lg transition-colors shrink-0"
                   >
                     시뮬레이션 →
-                    </button>
+                  </button>
                 )}
               </div>
             );

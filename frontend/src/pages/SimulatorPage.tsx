@@ -40,7 +40,7 @@ interface FlatEvent {
 }
 
 const eventToKorean: Record<string, string> = {
-  '1B': '단타', '2B': '2루타', '3B': '3루타',
+  '1B': '안타', '2B': '2루타', '3B': '3루타',
   'HR': '홈런', 'BB': '볼넷', 'OUT': '아웃', 'K': '삼진',
 };
 
