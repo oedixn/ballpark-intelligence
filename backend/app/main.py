@@ -74,6 +74,50 @@ PLAYER_SELECT = """
                 / NULLIF(pst.pa, 0)
             AS NUMERIC), 3
         ) AS woba,
+        ROUND(
+            CAST(
+                PERCENT_RANK() OVER (
+                    PARTITION BY pst.season_year
+                    ORDER BY (
+                        pst.bb * 0.69 + pst.hbp * 0.72
+                        + (pst.h - pst.double_hit - pst.triple_hit - pst.hr) * 0.87
+                        + pst.double_hit * 1.217 + pst.triple_hit * 1.529 + pst.hr * 1.74
+                    ) / NULLIF(pst.pa, 0)
+                ) * 100
+            AS NUMERIC), 0
+        ) AS woba_percentile,
+        ROUND(
+            CAST(
+                PERCENT_RANK() OVER (
+                    PARTITION BY pst.season_year
+                    ORDER BY pst.ops
+                ) * 100
+            AS NUMERIC), 0
+        ) AS ops_percentile,
+        ROUND(
+            CAST(
+                PERCENT_RANK() OVER (
+                    PARTITION BY pst.season_year
+                    ORDER BY pst.hr
+                ) * 100
+            AS NUMERIC), 0
+        ) AS hr_percentile,
+        ROUND(
+            CAST(
+                PERCENT_RANK() OVER (
+                    PARTITION BY pst.season_year
+                    ORDER BY CAST(pst.bb AS NUMERIC) / NULLIF(pst.pa, 0)
+                ) * 100
+            AS NUMERIC), 0
+        ) AS bb_percentile,
+        ROUND(
+            CAST(
+                PERCENT_RANK() OVER (
+                    PARTITION BY pst.season_year
+                    ORDER BY CAST(pst.so AS NUMERIC) / NULLIF(pst.pa, 0) DESC
+                ) * 100
+            AS NUMERIC), 0
+        ) AS k_percentile,
         NULL::numeric AS babip,
         NULL::numeric AS spd,
         NULL::numeric AS war,
@@ -160,10 +204,75 @@ def get_player(player_id: int):
         conn = get_conn()
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
-        cur.execute(
-            PLAYER_SELECT + " WHERE p.player_id = %s::varchar AND pst.season_year = %s",
-            (player_id, LATEST_SEASON)
-        )
+        cur.execute("""
+            SELECT * FROM (
+                SELECT
+                    p.player_id,
+                    p.player_name,
+                    t.team_name,
+                    pst.season_year,
+                    pst.avg,
+                    pst.pa,
+                    pst.ab,
+                    pst.h,
+                    pst.double_hit,
+                    pst.triple_hit,
+                    pst.hr,
+                    pst.bb,
+                    pst.hbp,
+                    pst.so,
+                    pst.slg,
+                    pst.obp,
+                    pst.ops,
+                    pst.isop,
+                    pst.rbi,
+                    ROUND(CAST(pst.bb AS NUMERIC) / NULLIF(pst.pa, 0) * 100, 1) AS bb_rate,
+                    ROUND(CAST(pst.so AS NUMERIC) / NULLIF(pst.pa, 0) * 100, 1) AS k_rate,
+                    ROUND(CAST(pst.slg - pst.avg AS NUMERIC), 3) AS iso,
+                    ROUND(
+                        CAST(
+                            (pst.bb * 0.69 + pst.hbp * 0.72
+                            + (pst.h - pst.double_hit - pst.triple_hit - pst.hr) * 0.87
+                            + pst.double_hit * 1.217 + pst.triple_hit * 1.529 + pst.hr * 1.74)
+                            / NULLIF(pst.pa, 0)
+                        AS NUMERIC), 3
+                    ) AS woba,
+                    ROUND(CAST(PERCENT_RANK() OVER (
+                        PARTITION BY pst.season_year
+                        ORDER BY (
+                            pst.bb * 0.69 + pst.hbp * 0.72
+                            + (pst.h - pst.double_hit - pst.triple_hit - pst.hr) * 0.87
+                            + pst.double_hit * 1.217 + pst.triple_hit * 1.529 + pst.hr * 1.74
+                        ) / NULLIF(pst.pa, 0)
+                    ) * 100 AS NUMERIC), 0) AS woba_percentile,
+                    ROUND(CAST(PERCENT_RANK() OVER (
+                        PARTITION BY pst.season_year ORDER BY pst.ops
+                    ) * 100 AS NUMERIC), 0) AS ops_percentile,
+                    ROUND(CAST(PERCENT_RANK() OVER (
+                        PARTITION BY pst.season_year ORDER BY pst.hr
+                    ) * 100 AS NUMERIC), 0) AS hr_percentile,
+                    ROUND(CAST(PERCENT_RANK() OVER (
+                        PARTITION BY pst.season_year
+                        ORDER BY CAST(pst.bb AS NUMERIC) / NULLIF(pst.pa, 0)
+                    ) * 100 AS NUMERIC), 0) AS bb_percentile,
+                    ROUND(CAST(PERCENT_RANK() OVER (
+                        PARTITION BY pst.season_year
+                        ORDER BY CAST(pst.so AS NUMERIC) / NULLIF(pst.pa, 0) DESC
+                    ) * 100 AS NUMERIC), 0) AS k_percentile,
+                    NULL::numeric AS babip,
+                    NULL::numeric AS spd,
+                    NULL::numeric AS war,
+                    def.position
+                FROM players p
+                JOIN player_hitter_stats pst ON p.player_id = pst.player_id
+                JOIN teams t ON pst.team_id = t.team_id
+                LEFT JOIN player_defense_stats def
+                    ON p.player_id = def.player_id
+                    AND pst.season_year = def.season_year
+                WHERE pst.season_year = %s
+            ) sub
+            WHERE sub.player_id = %s::varchar
+        """, (LATEST_SEASON, player_id))
 
         row = cur.fetchone()
         cur.close()

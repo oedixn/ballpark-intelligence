@@ -17,37 +17,21 @@ function dbToPlayer(p: PlayerDB): Player {
     team: p.team_name,
     position: p.position ?? '-',
     stats: [
-      { label: 'wOBA', value: Number(p.woba    ?? 0), percentile: 0, unit: 'wOBA' },
-      { label: 'OPS',  value: Number(p.ops     ?? 0), percentile: 0, unit: 'OPS'  },
-      { label: 'HR',   value: Number(p.hr      ?? 0), percentile: 0, unit: 'HR'   },
-      { label: 'BB%',  value: Number(p.bb_rate ?? 0), percentile: 0, unit: '%'    },
-      { label: 'K%',   value: Number(p.k_rate  ?? 0), percentile: 0, unit: '%'    },
+      { label: 'wOBA', value: Number(p.woba    ?? 0), percentile: Number((p as any).woba_percentile ?? 0), unit: 'wOBA' },
+      { label: 'OPS',  value: Number(p.ops     ?? 0), percentile: Number((p as any).ops_percentile  ?? 0), unit: 'OPS'  },
+      { label: 'HR',   value: Number(p.hr      ?? 0), percentile: Number((p as any).hr_percentile   ?? 0), unit: 'HR'   },
+      { label: 'BB%',  value: Number(p.bb_rate ?? 0), percentile: Number((p as any).bb_percentile   ?? 0), unit: '%'    },
+      { label: 'K%',   value: Number(p.k_rate  ?? 0), percentile: Number((p as any).k_percentile    ?? 0), unit: '%'    },
     ],
     radar: [
       { stat: '컨택',   value: Math.min(99, Math.round(Number(p.avg     ?? 0) * 300)) },
-      { stat: '파워',   value: Math.min(99, Math.round(Number(p.iso     ?? 0) * 400)) },
+      { stat: '파워',   value: Math.min(99, Math.round(Number((p as any).iso ?? 0) * 400)) },
       { stat: '선구안', value: Math.min(99, Math.round(Number(p.bb_rate ?? 0) * 5))   },
-      { stat: '스피드', value: Math.min(99, Math.round(Number(p.spd     ?? 0) * 10))  },
+      { stat: '스피드', value: 50 },
       { stat: '수비',   value: 60 },
       { stat: '출루',   value: Math.min(99, Math.round(Number(p.obp     ?? 0) * 200)) },
     ],
   };
-}
-
-function calcPercentile(label: string, value: number): number {
-  const benchmarks: Record<string, { min: number; max: number }> = {
-    'wOBA': { min: 0.250, max: 0.450 },
-    'OPS':  { min: 0.550, max: 1.000 },
-    'HR':   { min: 0,     max: 40    },
-    'BB%':  { min: 3,     max: 20    },
-    'K%':   { min: 5,     max: 35    },
-  };
-  const b = benchmarks[label];
-  if (!b) return 50;
-  const pct = ((value - b.min) / (b.max - b.min)) * 100;
-  return label === 'K%'
-    ? Math.min(99, Math.max(1, Math.round(100 - pct)))
-    : Math.min(99, Math.max(1, Math.round(pct)));
 }
 
 export default function PlayerPage() {
@@ -69,12 +53,7 @@ export default function PlayerPage() {
     setError(false);
     fetchPlayerById(playerId)
       .then((data) => {
-        const converted = dbToPlayer(data);
-        converted.stats = converted.stats.map((s) => ({
-          ...s,
-          percentile: calcPercentile(s.label, s.value),
-        }));
-        setPlayer(converted);
+        setPlayer(dbToPlayer(data));
       })
       .catch(() => setError(true))
       .finally(() => setLoading(false));
@@ -101,15 +80,7 @@ export default function PlayerPage() {
       setListLoading(true);
       try {
         const data = await fetchPlayers(query);
-        const converted = data.map((p) => {
-          const player = dbToPlayer(p);
-          player.stats = player.stats.map((s) => ({
-            ...s,
-            percentile: calcPercentile(s.label, s.value),
-          }));
-          return player;
-        });
-        setPlayers(converted);
+        setPlayers(data.map(dbToPlayer));
       } catch {
         setPlayers([]);
       } finally {
@@ -119,29 +90,24 @@ export default function PlayerPage() {
     return () => clearTimeout(timer);
   }, [query]);
 
-  const selectPlayer = async (p: Player) => {
+  async function selectPlayer(p: Player) {
     setLoading(true);
     setError(false);
     setShowList(false);
     try {
       const data = await fetchPlayerById(String(p.id));
-      const converted = dbToPlayer(data);
-      converted.stats = converted.stats.map((s) => ({
-        ...s,
-        percentile: calcPercentile(s.label, s.value),
-      }));
-      setPlayer(converted);
+      setPlayer(dbToPlayer(data));
     } catch {
       setError(true);
     } finally {
       setLoading(false);
     }
-  };
+  }
 
-  const handleBack = () => {
+  function handleBack() {
     setPlayer(null);
     setShowList(true);
-  };
+  }
 
   // 선수 목록 화면
   if (showList && !playerId) {
