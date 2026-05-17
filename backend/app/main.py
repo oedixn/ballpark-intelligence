@@ -9,7 +9,6 @@ import psycopg2.extras
 import math
 from itertools import permutations
 
-
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from game_simulator.simulator_main import (
     BattingRecord,
@@ -21,7 +20,6 @@ from game_simulator.simulator_main import (
 
 app = FastAPI(title="BallPark Intelligence API")
 
-# CORS 설정
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173"],
@@ -30,7 +28,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ── DB 연결 ───────────────────────────────────────
 DB_CONFIG = {
     "host": "localhost",
     "port": 5432,
@@ -39,8 +36,55 @@ DB_CONFIG = {
     "password": "ballpark1234",
 }
 
+LATEST_SEASON = 2026
+
 def get_conn():
     return psycopg2.connect(**DB_CONFIG)
+
+# ── 공통 SELECT 절 ────────────────────────────────
+PLAYER_SELECT = """
+    SELECT
+        p.player_id,
+        p.player_name,
+        t.team_name,
+        pst.season_year,
+        pst.avg,
+        pst.pa,
+        pst.ab,
+        pst.h,
+        pst.double_hit,
+        pst.triple_hit,
+        pst.hr,
+        pst.bb,
+        pst.hbp,
+        pst.so,
+        pst.slg,
+        pst.obp,
+        pst.ops,
+        pst.isop,
+        pst.rbi,
+        ROUND(CAST(pst.bb AS NUMERIC) / NULLIF(pst.pa, 0) * 100, 1) AS bb_rate,
+        ROUND(CAST(pst.so AS NUMERIC) / NULLIF(pst.pa, 0) * 100, 1) AS k_rate,
+        ROUND(CAST(pst.slg - pst.avg AS NUMERIC), 3) AS iso,
+        ROUND(
+            CAST(
+                (pst.bb * 0.69 + pst.hbp * 0.72
+                + (pst.h - pst.double_hit - pst.triple_hit - pst.hr) * 0.87
+                + pst.double_hit * 1.217 + pst.triple_hit * 1.529 + pst.hr * 1.74)
+                / NULLIF(pst.pa, 0)
+            AS NUMERIC), 3
+        ) AS woba,
+        NULL::numeric AS babip,
+        NULL::numeric AS spd,
+        NULL::numeric AS war,
+        def.position
+    FROM players p
+    JOIN player_hitter_stats pst ON p.player_id = pst.player_id
+    JOIN teams t ON pst.team_id = t.team_id
+    LEFT JOIN player_defense_stats def
+        ON p.player_id = def.player_id
+        AND pst.season_year = def.season_year
+"""
 
 # ── 요청 스키마 ──────────────────────────────────
 class PlayerRecord(BaseModel):
@@ -68,6 +112,13 @@ class MultiSimulateRequest(BaseModel):
     n_games: int = 1000
     innings: int = 9
 
+class GameRecordCreate(BaseModel):
+    team_name: str
+    opponent_name: str
+    result: str
+    my_score: int
+    opp_score: int
+
 # ── 헬스체크 ─────────────────────────────────────
 @app.get("/")
 def root():
@@ -84,59 +135,19 @@ def get_players(search: Optional[str] = None):
         conn = get_conn()
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
-        query = """
-            SELECT
-                p.player_id,
-                p.player_name,
-                t.team_name,
-                pst.season_year,
-                pst.avg,
-                pst.pa,
-                pst.ab,
-                pst.h,
-                pst.double_hit,
-                pst.triple_hit,
-                pst.hr,
-                pst.bb,
-                pst.hbp,
-                pst.so,
-                pst.slg,
-                pst.obp,
-                pst.ops,
-                pst.isop,
-                pst.rbi,
-                adv.babip,
-                adv.bb_rate,
-                adv.k_rate,
-                adv.iso,
-                adv.spd,
-                adv.war,
-                adv.woba,
-                def.position
-            FROM players p
-            JOIN player_hitter_stats pst ON p.player_id = pst.player_id
-            JOIN teams t ON pst.team_id = t.team_id
-            LEFT JOIN kbreport_player_hitter_advanced adv
-                ON p.player_name = adv.player_name
-                AND pst.season_year = adv.season_year
-            LEFT JOIN player_defense_stats def
-                ON p.player_id = def.player_id
-                AND pst.season_year = def.season_year
-            WHERE pst.season_year = 2021
-        """
+        query = PLAYER_SELECT + " WHERE pst.season_year = %s"
+        params: list = [LATEST_SEASON]
 
-        params = []
         if search:
             query += " AND (p.player_name ILIKE %s OR t.team_name ILIKE %s)"
-            params = [f"%{search}%", f"%{search}%"]
+            params += [f"%{search}%", f"%{search}%"]
 
-        query += " ORDER BY adv.war DESC NULLS LAST LIMIT 100"
+        query += " ORDER BY woba DESC NULLS LAST LIMIT 100"
 
         cur.execute(query, params)
         rows = cur.fetchall()
         cur.close()
         conn.close()
-
         return {"players": [dict(r) for r in rows]}
 
     except Exception as e:
@@ -149,46 +160,10 @@ def get_player(player_id: int):
         conn = get_conn()
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
-        cur.execute("""
-            SELECT
-                p.player_id,
-                p.player_name,
-                t.team_name,
-                pst.season_year,
-                pst.avg,
-                pst.pa,
-                pst.ab,
-                pst.h,
-                pst.double_hit,
-                pst.triple_hit,
-                pst.hr,
-                pst.bb,
-                pst.hbp,
-                pst.so,
-                pst.slg,
-                pst.obp,
-                pst.ops,
-                pst.isop,
-                pst.rbi,
-                adv.babip,
-                adv.bb_rate,
-                adv.k_rate,
-                adv.iso,
-                adv.spd,
-                adv.war,
-                adv.woba,
-                def.position
-            FROM players p
-            JOIN player_hitter_stats pst ON p.player_id = pst.player_id
-            JOIN teams t ON pst.team_id = t.team_id
-            LEFT JOIN kbreport_player_hitter_advanced adv
-                ON p.player_name = adv.player_name
-                AND pst.season_year = adv.season_year
-            LEFT JOIN player_defense_stats def
-                ON p.player_id = def.player_id
-                AND pst.season_year = def.season_year
-            WHERE p.player_id = %s::varchar AND pst.season_year = 2021
-        """, (player_id,))
+        cur.execute(
+            PLAYER_SELECT + " WHERE p.player_id = %s::varchar AND pst.season_year = %s",
+            (player_id, LATEST_SEASON)
+        )
 
         row = cur.fetchone()
         cur.close()
@@ -196,7 +171,6 @@ def get_player(player_id: int):
 
         if not row:
             raise HTTPException(status_code=404, detail="선수를 찾을 수 없습니다.")
-
         return dict(row)
 
     except HTTPException:
@@ -218,140 +192,7 @@ def get_teams():
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-# ── 단일 경기 시뮬레이션 ─────────────────────────
-@app.post("/api/simulate/game")
-def simulate_game(req: SimulateRequest):
-    team_a = [record_to_player_prob(BattingRecord(**p.dict())) for p in req.team_a_lineup]
-    team_b = [record_to_player_prob(BattingRecord(**p.dict())) for p in req.team_b_lineup]
-
-    match = MatchSimulator(
-        team_a_name=req.team_a_name,
-        team_a_lineup=team_a,
-        team_b_name=req.team_b_name,
-        team_b_lineup=team_b,
-    )
-
-    # 9이닝 정규 + 최대 12이닝 연장
-    game_log = match.simulate_game(innings=12)
-
-    score_a = game_log.final_score[0]
-    score_b = game_log.final_score[1]
-
-    # 무승부 여부
-    is_draw = score_a == score_b
-
-    return {
-        "team_a_name": req.team_a_name,
-        "team_b_name": req.team_b_name,
-        "game_log": game_log,
-        "is_draw": is_draw,
-    }
-
-# ── 다중 경기 시뮬레이션 (통계) ──────────────────
-@app.post("/api/simulate/multi")
-def simulate_multi(req: MultiSimulateRequest):
-    team_a = [record_to_player_prob(BattingRecord(**p.dict())) for p in req.team_a_lineup]
-    team_b = [record_to_player_prob(BattingRecord(**p.dict())) for p in req.team_b_lineup]
-
-    mc_a = LineupMonteCarloSimulator(team_a, seed=42)
-    mc_b = LineupMonteCarloSimulator(team_b, seed=42)
-
-    result_a = mc_a.simulate_many(n_games=req.n_games, innings=req.innings)
-    result_b = mc_b.simulate_many(n_games=req.n_games, innings=req.innings)
-
-    markov_a = LineupMarkovModel(team_a, max_runs=25)
-    markov_b = LineupMarkovModel(team_b, max_runs=25)
-    dist_a = markov_a.game_run_distribution(innings=req.innings)
-    dist_b = markov_b.game_run_distribution(innings=req.innings)
-
-    return {
-        "team_a": {
-            "name": req.team_a_name,
-            "markov_expected": markov_a.expected_runs(dist_a),
-            "mean_runs": result_a["mean_runs"],
-            "variance": result_a["variance"],
-            "prob_0_runs": result_a["prob_0_runs"],
-            "prob_5_or_more": result_a["prob_5_or_more_runs"],
-        },
-        "team_b": {
-            "name": req.team_b_name,
-            "markov_expected": markov_b.expected_runs(dist_b),
-            "mean_runs": result_b["mean_runs"],
-            "variance": result_b["variance"],
-            "prob_0_runs": result_b["prob_0_runs"],
-            "prob_5_or_more": result_b["prob_5_or_more_runs"],
-        },
-        "n_games": req.n_games,
-    }
-
-# ── 전적 기록 스키마 ──────────────────────────────
-class GameRecordCreate(BaseModel):
-    team_name: str
-    opponent_name: str
-    result: str
-    my_score: int
-    opp_score: int
-
-# ── 전적 저장 ─────────────────────────────────────
-@app.post("/api/records")
-def save_record(req: GameRecordCreate):
-    try:
-        conn = get_conn()
-        cur = conn.cursor()
-        cur.execute("""
-            INSERT INTO game_records (team_name, opponent_name, result, my_score, opp_score)
-            VALUES (%s, %s, %s, %s, %s)
-            RETURNING id
-        """, (req.team_name, req.opponent_name, req.result, req.my_score, req.opp_score))
-        record_id = cur.fetchone()[0]
-        conn.commit()
-        cur.close()
-        conn.close()
-        return {"id": record_id, "message": "전적이 저장되었습니다."}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-# ── 전적 조회 ─────────────────────────────────────
-@app.get("/api/records")
-def get_records(team_name: Optional[str] = None):
-    try:
-        conn = get_conn()
-        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        if team_name:
-            cur.execute("""
-                SELECT * FROM game_records
-                WHERE team_name = %s
-                ORDER BY played_at DESC
-                LIMIT 20
-            """, (team_name,))
-        else:
-            cur.execute("""
-                SELECT * FROM game_records
-                ORDER BY played_at DESC
-                LIMIT 20
-            """)
-        rows = cur.fetchall()
-        cur.close()
-        conn.close()
-        return {"records": [dict(r) for r in rows]}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-# ── 전적 삭제 ─────────────────────────────────────
-@app.delete("/api/records/{record_id}")
-def delete_record(record_id: int):
-    try:
-        conn = get_conn()
-        cur = conn.cursor()
-        cur.execute("DELETE FROM game_records WHERE id = %s", (record_id,))
-        conn.commit()
-        cur.close()
-        conn.close()
-        return {"message": "삭제되었습니다."}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-    
-    # ── 팀별 라인업 조회 (시뮬레이터용) ──────────────
+# ── 팀별 라인업 조회 (시뮬레이터용) ──────────────
 @app.get("/api/teams/{team_name}/lineup")
 def get_team_lineup(team_name: str):
     try:
@@ -371,11 +212,11 @@ def get_team_lineup(team_name: str):
             JOIN player_hitter_stats pst ON p.player_id = pst.player_id
             JOIN teams t ON pst.team_id = t.team_id
             WHERE t.team_name = %s
-              AND pst.season_year = 2021
-              AND pst.pa >= 100
+              AND pst.season_year = %s
+              AND pst.pa >= 50
             ORDER BY pst.pa DESC
             LIMIT 9
-        """, (team_name,))
+        """, (team_name, LATEST_SEASON))
         rows = cur.fetchall()
         cur.close()
         conn.close()
@@ -387,7 +228,122 @@ def get_team_lineup(team_name: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-# ── 타순 최적화 (휴리스틱 방식) ──────────────────
+# ── 단일 경기 시뮬레이션 ─────────────────────────
+@app.post("/api/simulate/game")
+def simulate_game(req: SimulateRequest):
+    team_a = [record_to_player_prob(BattingRecord(**p.dict())) for p in req.team_a_lineup]
+    team_b = [record_to_player_prob(BattingRecord(**p.dict())) for p in req.team_b_lineup]
+
+    match = MatchSimulator(
+        team_a_name=req.team_a_name,
+        team_a_lineup=team_a,
+        team_b_name=req.team_b_name,
+        team_b_lineup=team_b,
+    )
+
+    game_log = match.simulate_game(innings=12)
+    score_a  = game_log.final_score[0]
+    score_b  = game_log.final_score[1]
+
+    return {
+        "team_a_name": req.team_a_name,
+        "team_b_name": req.team_b_name,
+        "game_log":    game_log,
+        "is_draw":     score_a == score_b,
+    }
+
+# ── 다중 경기 시뮬레이션 (통계) ──────────────────
+@app.post("/api/simulate/multi")
+def simulate_multi(req: MultiSimulateRequest):
+    team_a = [record_to_player_prob(BattingRecord(**p.dict())) for p in req.team_a_lineup]
+    team_b = [record_to_player_prob(BattingRecord(**p.dict())) for p in req.team_b_lineup]
+
+    mc_a = LineupMonteCarloSimulator(team_a, seed=42)
+    mc_b = LineupMonteCarloSimulator(team_b, seed=42)
+
+    result_a = mc_a.simulate_many(n_games=req.n_games, innings=req.innings)
+    result_b = mc_b.simulate_many(n_games=req.n_games, innings=req.innings)
+
+    markov_a = LineupMarkovModel(team_a, max_runs=25)
+    markov_b = LineupMarkovModel(team_b, max_runs=25)
+    dist_a   = markov_a.game_run_distribution(innings=req.innings)
+    dist_b   = markov_b.game_run_distribution(innings=req.innings)
+
+    return {
+        "team_a": {
+            "name":            req.team_a_name,
+            "markov_expected": markov_a.expected_runs(dist_a),
+            "mean_runs":       result_a["mean_runs"],
+            "variance":        result_a["variance"],
+            "prob_0_runs":     result_a["prob_0_runs"],
+            "prob_5_or_more":  result_a["prob_5_or_more_runs"],
+        },
+        "team_b": {
+            "name":            req.team_b_name,
+            "markov_expected": markov_b.expected_runs(dist_b),
+            "mean_runs":       result_b["mean_runs"],
+            "variance":        result_b["variance"],
+            "prob_0_runs":     result_b["prob_0_runs"],
+            "prob_5_or_more":  result_b["prob_5_or_more_runs"],
+        },
+        "n_games": req.n_games,
+    }
+
+# ── 전적 저장 ─────────────────────────────────────
+@app.post("/api/records")
+def save_record(req: GameRecordCreate):
+    try:
+        conn = get_conn()
+        cur  = conn.cursor()
+        cur.execute("""
+            INSERT INTO game_records (team_name, opponent_name, result, my_score, opp_score)
+            VALUES (%s, %s, %s, %s, %s)
+            RETURNING id
+        """, (req.team_name, req.opponent_name, req.result, req.my_score, req.opp_score))
+        record_id = cur.fetchone()[0]
+        conn.commit()
+        cur.close()
+        conn.close()
+        return {"id": record_id, "message": "전적이 저장되었습니다."}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ── 전적 조회 ─────────────────────────────────────
+@app.get("/api/records")
+def get_records(team_name: Optional[str] = None):
+    try:
+        conn = get_conn()
+        cur  = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        if team_name:
+            cur.execute("""
+                SELECT * FROM game_records
+                WHERE team_name = %s
+                ORDER BY played_at DESC LIMIT 20
+            """, (team_name,))
+        else:
+            cur.execute("SELECT * FROM game_records ORDER BY played_at DESC LIMIT 20")
+        rows = cur.fetchall()
+        cur.close()
+        conn.close()
+        return {"records": [dict(r) for r in rows]}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ── 전적 삭제 ─────────────────────────────────────
+@app.delete("/api/records/{record_id}")
+def delete_record(record_id: int):
+    try:
+        conn = get_conn()
+        cur  = conn.cursor()
+        cur.execute("DELETE FROM game_records WHERE id = %s", (record_id,))
+        conn.commit()
+        cur.close()
+        conn.close()
+        return {"message": "삭제되었습니다."}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ── 타순 최적화 (휴리스틱) ────────────────────────
 @app.post("/api/lineup/optimize")
 def optimize_lineup(req: SimulateRequest):
     try:
@@ -399,14 +355,11 @@ def optimize_lineup(req: SimulateRequest):
         def ops(p):
             return obp(p) + p.single + 2*p.double + 3*p.triple + 4*p.hr
 
-        def hr_rate(p):
-            return p.hr
-
         sorted_by_obp = sorted(lineup, key=obp, reverse=True)
         sorted_by_ops = sorted(lineup, key=ops, reverse=True)
-        sorted_by_hr  = sorted(lineup, key=hr_rate, reverse=True)
+        sorted_by_hr  = sorted(lineup, key=lambda p: p.hr, reverse=True)
 
-        used = set()
+        used   = set()
         result = []
 
         def pick(candidates):
@@ -416,18 +369,17 @@ def optimize_lineup(req: SimulateRequest):
                     result.append(p)
                     return
 
-        pick(sorted_by_obp)  # 1번: 출루율 최고
-        pick(sorted_by_ops)  # 2번: OPS 중 미사용
-        pick(sorted_by_ops)  # 3번: OPS 중 미사용
-        pick(sorted_by_hr)   # 4번: HR 최고 (클린업)
-        pick(sorted_by_hr)   # 5번: HR 2위
+        pick(sorted_by_obp)
+        pick(sorted_by_ops)
+        pick(sorted_by_ops)
+        pick(sorted_by_hr)
+        pick(sorted_by_hr)
         for p in sorted_by_ops:
             if p.name not in used:
                 result.append(p)
                 used.add(p.name)
 
-        return {
-            "optimized_order": [p.name for p in result],
-        }
+        return {"optimized_order": [p.name for p in result]}
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

@@ -62,12 +62,8 @@ services:
       - ./frontend:/app
       - /app/node_modules
 
-volumes:
-  postgres_data:
-
-  
- # ── backend (crawler) ─────────────────────────────────
- crawler:
+  # ── Crawler ───────────────────────────────────────────
+  crawler:
     build: ./backend
     container_name: ballpark_crawler
     environment:
@@ -83,3 +79,6 @@ volumes:
       - ./backend:/app
     command: cron -f
     restart: unless-stopped
+
+volumes:
+  postgres_data:
