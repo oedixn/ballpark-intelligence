@@ -64,3 +64,22 @@ services:
 
 volumes:
   postgres_data:
+
+  
+ # ── backend (crawler) ─────────────────────────────────
+ crawler:
+    build: ./backend
+    container_name: ballpark_crawler
+    environment:
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_NAME: ballpark
+      DB_USER: ballpark
+      DB_PASSWORD: ballpark1234
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+    command: cron -f
+    restart: unless-stopped
