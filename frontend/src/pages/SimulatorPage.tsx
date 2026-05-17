@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useSearchParams } from 'react-router-dom';
 import Scoreboard from '../components/simulator/Scoreboard';
 import StatsModal from '../components/simulator/StatsModal';
 import { simulateGame, simulateMulti } from '../api/simulatorApi';
@@ -88,26 +88,36 @@ function buildEvents(innings: InningLog[]): FlatEvent[] {
 }
 
 export default function SimulatorPage() {
-  const location   = useLocation();
+  const location       = useLocation();
+  const [searchParams] = useSearchParams();
+
   const fromMyTeam = location.state as {
     lineup:   typeof DEFAULT_LINEUP_A;
     teamName: string;
     opponent: string;
   } | null;
 
-  const teamALineup  = fromMyTeam?.lineup    ?? DEFAULT_LINEUP_A;
-  const teamAName    = fromMyTeam?.teamName  ?? 'SSG 랜더스';
-  const opponentName = fromMyTeam?.opponent  ?? '롯데';
-  const teamBName    = opponentName;
+  const urlTeamA = searchParams.get('team_a');
+  const urlTeamB = searchParams.get('team_b');
 
+  // 팀 이름 state로 관리
+  const [teamAName, setTeamAName] = useState(
+    fromMyTeam?.teamName ?? urlTeamA ?? 'SSG 랜더스'
+  );
+  const [teamBName, setTeamBName] = useState(
+    fromMyTeam?.opponent ?? urlTeamB ?? '롯데'
+  );
+
+  const [teamALineup, setTeamALineup] = useState(fromMyTeam?.lineup ?? DEFAULT_LINEUP_A);
   const [teamBLineup, setTeamBLineup] = useState(DEFAULT_LINEUP_B);
-  const [loading, setLoading]         = useState(false);
-  const [showStats, setShowStats]     = useState(false);
-  const [gameLog, setGameLog]         = useState<GameLog | null>(null);
-  const [multiStats, setMultiStats]   = useState<MultiSimulateResponse | null>(null);
-  const [error, setError]             = useState<string | null>(null);
+  const [lineupLoading, setLineupLoading] = useState(false);
 
-  // 문자중계 애니메이션 상태
+  const [loading, setLoading]       = useState(false);
+  const [showStats, setShowStats]   = useState(false);
+  const [gameLog, setGameLog]       = useState<GameLog | null>(null);
+  const [multiStats, setMultiStats] = useState<MultiSimulateResponse | null>(null);
+  const [error, setError]           = useState<string | null>(null);
+
   const [displayed, setDisplayed] = useState<FlatEvent[]>([]);
   const [currentPA, setCurrentPA] = useState<PlateAppearance | null>(null);
   const [banner, setBanner]       = useState<PlateAppearance | null>(null);
@@ -123,14 +133,43 @@ export default function SimulatorPage() {
   const bannerTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const bottomRef   = useRef<HTMLDivElement>(null);
 
-  // 상대팀 라인업 DB에서 불러오기
+  // URL 파라미터로 왔을 때 팀 이름 + 라인업 로드
   useEffect(() => {
-    fetchTeamLineup(opponentName)
+    if (!urlTeamA && !urlTeamB) return;
+
+    if (urlTeamA) setTeamAName(urlTeamA);
+    if (urlTeamB) setTeamBName(urlTeamB);
+
+    setLineupLoading(true);
+    const promises: Promise<void>[] = [];
+
+    if (urlTeamA && !fromMyTeam) {
+      promises.push(
+        fetchTeamLineup(urlTeamA)
+          .then(setTeamALineup)
+          .catch(() => setTeamALineup(DEFAULT_LINEUP_A))
+      );
+    }
+
+    if (urlTeamB) {
+      promises.push(
+        fetchTeamLineup(urlTeamB)
+          .then(setTeamBLineup)
+          .catch(() => setTeamBLineup(DEFAULT_LINEUP_B))
+      );
+    }
+
+    Promise.all(promises).finally(() => setLineupLoading(false));
+  }, [urlTeamA, urlTeamB]);
+
+  // MyTeam에서 왔을 때 상대팀 라인업 로드
+  useEffect(() => {
+    if (urlTeamA || urlTeamB) return;
+    fetchTeamLineup(fromMyTeam?.opponent ?? '롯데')
       .then(setTeamBLineup)
       .catch(() => setTeamBLineup(DEFAULT_LINEUP_B));
-  }, [opponentName]);
+  }, []);
 
-  // 자동 스크롤
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [displayed]);
@@ -139,10 +178,7 @@ export default function SimulatorPage() {
     if (pausedRef.current) return;
     const idx    = idxRef.current;
     const events = eventsRef.current;
-    if (idx >= events.length) {
-      setDone(true);
-      return;
-    }
+    if (idx >= events.length) { setDone(true); return; }
     const ev = events[idx];
     idxRef.current = idx + 1;
     setDisplayed((prev) => [...prev, ev]);
@@ -184,7 +220,6 @@ export default function SimulatorPage() {
       });
       setGameLog(res.game_log);
       startAnimation(res.game_log.innings);
-
       const scoreA = res.game_log.final_score[0];
       const scoreB = res.game_log.final_score[1];
       const result = scoreA > scoreB ? '승' : scoreA < scoreB ? '패' : '무';
@@ -273,7 +308,6 @@ export default function SimulatorPage() {
         .pa-row { animation: fadeSlideIn 0.3s ease forwards; opacity:0; }
       `}</style>
 
-      {/* 이벤트 배너 */}
       {banner && bannerCfg[banner.event] && (() => {
         const cfg = bannerCfg[banner.event];
         return (
@@ -286,7 +320,6 @@ export default function SimulatorPage() {
         );
       })()}
 
-      {/* 헤더 */}
       <div className="bg-gradient-to-r from-gray-800 to-gray-900 border-b border-gray-700 px-10 py-8">
         <div className="flex items-center justify-between">
           <div>
@@ -310,7 +343,11 @@ export default function SimulatorPage() {
           </div>
         </div>
 
-        {fromMyTeam && (
+        {lineupLoading && (
+          <p className="text-gray-500 text-xs mt-3 animate-pulse">⚾ 라인업 불러오는 중...</p>
+        )}
+
+        {!lineupLoading && (urlTeamA || fromMyTeam) && (
           <div className="mt-4 flex flex-wrap gap-2">
             {teamALineup.map((p, i) => (
               <span key={i} className="text-xs bg-gray-700 text-gray-300 px-3 py-1 rounded-full">
@@ -321,13 +358,12 @@ export default function SimulatorPage() {
         )}
       </div>
 
-      {/* 본문 */}
       <div className="px-10 py-8 space-y-6">
         {error && (
           <div className="bg-red-900/30 border border-red-700 rounded-xl px-6 py-4 text-red-400">{error}</div>
         )}
 
-        {!gameLog && !loading && (
+        {!gameLog && !loading && !lineupLoading && (
           <div className="flex justify-center py-10">
             <button onClick={handleStart} className="bg-orange-500 hover:bg-orange-600 text-white font-black text-lg px-12 py-4 rounded-xl transition-colors">
               ▶ 경기 시작
@@ -335,9 +371,11 @@ export default function SimulatorPage() {
           </div>
         )}
 
-        {loading && (
+        {(loading || lineupLoading) && (
           <div className="flex justify-center py-10">
-            <p className="text-gray-400 text-lg animate-pulse">⚾ 시뮬레이션 중...</p>
+            <p className="text-gray-400 text-lg animate-pulse">
+              {lineupLoading ? '⚾ 라인업 로딩 중...' : '⚾ 시뮬레이션 중...'}
+            </p>
           </div>
         )}
 
@@ -345,7 +383,6 @@ export default function SimulatorPage() {
           <>
             <Scoreboard away={scoreboard.away} home={scoreboard.home} />
 
-            {/* 현황 패널 */}
             {currentPA && (
               <div className="bg-gray-800 rounded-xl px-6 py-3 flex items-center gap-6 border border-gray-700">
                 <div>
@@ -371,7 +408,6 @@ export default function SimulatorPage() {
               </div>
             )}
 
-            {/* 경기 로그 */}
             <div className="bg-gray-800 rounded-xl p-6">
               <div className="flex items-center justify-between mb-4">
                 <p className="text-gray-400 text-xs uppercase tracking-widest">경기 로그</p>

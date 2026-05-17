@@ -8,6 +8,11 @@ import psycopg2
 import psycopg2.extras
 import math
 from itertools import permutations
+import re
+import urllib.request
+import urllib.parse
+import json as json_lib
+from datetime import datetime
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from game_simulator.simulator_main import (
@@ -41,7 +46,6 @@ LATEST_SEASON = 2026
 def get_conn():
     return psycopg2.connect(**DB_CONFIG)
 
-# ── 공통 SELECT 절 ────────────────────────────────
 PLAYER_SELECT = """
     SELECT
         p.player_id,
@@ -74,50 +78,28 @@ PLAYER_SELECT = """
                 / NULLIF(pst.pa, 0)
             AS NUMERIC), 3
         ) AS woba,
-        ROUND(
-            CAST(
-                PERCENT_RANK() OVER (
-                    PARTITION BY pst.season_year
-                    ORDER BY (
-                        pst.bb * 0.69 + pst.hbp * 0.72
-                        + (pst.h - pst.double_hit - pst.triple_hit - pst.hr) * 0.87
-                        + pst.double_hit * 1.217 + pst.triple_hit * 1.529 + pst.hr * 1.74
-                    ) / NULLIF(pst.pa, 0)
-                ) * 100
-            AS NUMERIC), 0
-        ) AS woba_percentile,
-        ROUND(
-            CAST(
-                PERCENT_RANK() OVER (
-                    PARTITION BY pst.season_year
-                    ORDER BY pst.ops
-                ) * 100
-            AS NUMERIC), 0
-        ) AS ops_percentile,
-        ROUND(
-            CAST(
-                PERCENT_RANK() OVER (
-                    PARTITION BY pst.season_year
-                    ORDER BY pst.hr
-                ) * 100
-            AS NUMERIC), 0
-        ) AS hr_percentile,
-        ROUND(
-            CAST(
-                PERCENT_RANK() OVER (
-                    PARTITION BY pst.season_year
-                    ORDER BY CAST(pst.bb AS NUMERIC) / NULLIF(pst.pa, 0)
-                ) * 100
-            AS NUMERIC), 0
-        ) AS bb_percentile,
-        ROUND(
-            CAST(
-                PERCENT_RANK() OVER (
-                    PARTITION BY pst.season_year
-                    ORDER BY CAST(pst.so AS NUMERIC) / NULLIF(pst.pa, 0) DESC
-                ) * 100
-            AS NUMERIC), 0
-        ) AS k_percentile,
+        ROUND(CAST(PERCENT_RANK() OVER (
+            PARTITION BY pst.season_year
+            ORDER BY (
+                pst.bb * 0.69 + pst.hbp * 0.72
+                + (pst.h - pst.double_hit - pst.triple_hit - pst.hr) * 0.87
+                + pst.double_hit * 1.217 + pst.triple_hit * 1.529 + pst.hr * 1.74
+            ) / NULLIF(pst.pa, 0)
+        ) * 100 AS NUMERIC), 0) AS woba_percentile,
+        ROUND(CAST(PERCENT_RANK() OVER (
+            PARTITION BY pst.season_year ORDER BY pst.ops
+        ) * 100 AS NUMERIC), 0) AS ops_percentile,
+        ROUND(CAST(PERCENT_RANK() OVER (
+            PARTITION BY pst.season_year ORDER BY pst.hr
+        ) * 100 AS NUMERIC), 0) AS hr_percentile,
+        ROUND(CAST(PERCENT_RANK() OVER (
+            PARTITION BY pst.season_year
+            ORDER BY CAST(pst.bb AS NUMERIC) / NULLIF(pst.pa, 0)
+        ) * 100 AS NUMERIC), 0) AS bb_percentile,
+        ROUND(CAST(PERCENT_RANK() OVER (
+            PARTITION BY pst.season_year
+            ORDER BY CAST(pst.so AS NUMERIC) / NULLIF(pst.pa, 0) DESC
+        ) * 100 AS NUMERIC), 0) AS k_percentile,
         NULL::numeric AS babip,
         NULL::numeric AS spd,
         NULL::numeric AS war,
@@ -204,75 +186,10 @@ def get_player(player_id: int):
         conn = get_conn()
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
-        cur.execute("""
-            SELECT * FROM (
-                SELECT
-                    p.player_id,
-                    p.player_name,
-                    t.team_name,
-                    pst.season_year,
-                    pst.avg,
-                    pst.pa,
-                    pst.ab,
-                    pst.h,
-                    pst.double_hit,
-                    pst.triple_hit,
-                    pst.hr,
-                    pst.bb,
-                    pst.hbp,
-                    pst.so,
-                    pst.slg,
-                    pst.obp,
-                    pst.ops,
-                    pst.isop,
-                    pst.rbi,
-                    ROUND(CAST(pst.bb AS NUMERIC) / NULLIF(pst.pa, 0) * 100, 1) AS bb_rate,
-                    ROUND(CAST(pst.so AS NUMERIC) / NULLIF(pst.pa, 0) * 100, 1) AS k_rate,
-                    ROUND(CAST(pst.slg - pst.avg AS NUMERIC), 3) AS iso,
-                    ROUND(
-                        CAST(
-                            (pst.bb * 0.69 + pst.hbp * 0.72
-                            + (pst.h - pst.double_hit - pst.triple_hit - pst.hr) * 0.87
-                            + pst.double_hit * 1.217 + pst.triple_hit * 1.529 + pst.hr * 1.74)
-                            / NULLIF(pst.pa, 0)
-                        AS NUMERIC), 3
-                    ) AS woba,
-                    ROUND(CAST(PERCENT_RANK() OVER (
-                        PARTITION BY pst.season_year
-                        ORDER BY (
-                            pst.bb * 0.69 + pst.hbp * 0.72
-                            + (pst.h - pst.double_hit - pst.triple_hit - pst.hr) * 0.87
-                            + pst.double_hit * 1.217 + pst.triple_hit * 1.529 + pst.hr * 1.74
-                        ) / NULLIF(pst.pa, 0)
-                    ) * 100 AS NUMERIC), 0) AS woba_percentile,
-                    ROUND(CAST(PERCENT_RANK() OVER (
-                        PARTITION BY pst.season_year ORDER BY pst.ops
-                    ) * 100 AS NUMERIC), 0) AS ops_percentile,
-                    ROUND(CAST(PERCENT_RANK() OVER (
-                        PARTITION BY pst.season_year ORDER BY pst.hr
-                    ) * 100 AS NUMERIC), 0) AS hr_percentile,
-                    ROUND(CAST(PERCENT_RANK() OVER (
-                        PARTITION BY pst.season_year
-                        ORDER BY CAST(pst.bb AS NUMERIC) / NULLIF(pst.pa, 0)
-                    ) * 100 AS NUMERIC), 0) AS bb_percentile,
-                    ROUND(CAST(PERCENT_RANK() OVER (
-                        PARTITION BY pst.season_year
-                        ORDER BY CAST(pst.so AS NUMERIC) / NULLIF(pst.pa, 0) DESC
-                    ) * 100 AS NUMERIC), 0) AS k_percentile,
-                    NULL::numeric AS babip,
-                    NULL::numeric AS spd,
-                    NULL::numeric AS war,
-                    def.position
-                FROM players p
-                JOIN player_hitter_stats pst ON p.player_id = pst.player_id
-                JOIN teams t ON pst.team_id = t.team_id
-                LEFT JOIN player_defense_stats def
-                    ON p.player_id = def.player_id
-                    AND pst.season_year = def.season_year
-                WHERE pst.season_year = %s
-            ) sub
-            WHERE sub.player_id = %s::varchar
-        """, (LATEST_SEASON, player_id))
+        cur.execute(
+            "SELECT * FROM (" + PLAYER_SELECT + " WHERE pst.season_year = %s) sub WHERE sub.player_id = %s::varchar",
+            (LATEST_SEASON, player_id)
+        )
 
         row = cur.fetchone()
         cur.close()
@@ -301,7 +218,7 @@ def get_teams():
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-# ── 팀별 라인업 조회 (시뮬레이터용) ──────────────
+# ── 팀별 라인업 조회 ──────────────────────────────
 @app.get("/api/teams/{team_name}/lineup")
 def get_team_lineup(team_name: str):
     try:
@@ -361,7 +278,7 @@ def simulate_game(req: SimulateRequest):
         "is_draw":     score_a == score_b,
     }
 
-# ── 다중 경기 시뮬레이션 (통계) ──────────────────
+# ── 다중 경기 시뮬레이션 ──────────────────────────
 @app.post("/api/simulate/multi")
 def simulate_multi(req: MultiSimulateRequest):
     team_a = [record_to_player_prob(BattingRecord(**p.dict())) for p in req.team_a_lineup]
@@ -452,48 +369,7 @@ def delete_record(record_id: int):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-# ── 타순 최적화 (휴리스틱) ────────────────────────
-@app.post("/api/lineup/optimize")
-def optimize_lineup(req: SimulateRequest):
-    try:
-        lineup = [record_to_player_prob(BattingRecord(**p.dict())) for p in req.team_a_lineup]
-
-        def obp(p):
-            return p.bb + p.single + p.double + p.triple + p.hr
-
-        def ops(p):
-            return obp(p) + p.single + 2*p.double + 3*p.triple + 4*p.hr
-
-        sorted_by_obp = sorted(lineup, key=obp, reverse=True)
-        sorted_by_ops = sorted(lineup, key=ops, reverse=True)
-        sorted_by_hr  = sorted(lineup, key=lambda p: p.hr, reverse=True)
-
-        used   = set()
-        result = []
-
-        def pick(candidates):
-            for p in candidates:
-                if p.name not in used:
-                    used.add(p.name)
-                    result.append(p)
-                    return
-
-        pick(sorted_by_obp)
-        pick(sorted_by_ops)
-        pick(sorted_by_ops)
-        pick(sorted_by_hr)
-        pick(sorted_by_hr)
-        for p in sorted_by_ops:
-            if p.name not in used:
-                result.append(p)
-                used.add(p.name)
-
-        return {"optimized_order": [p.name for p in result]}
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-    
-    # ── 팀 순위 조회 ──────────────────────────────────
+# ── 팀 순위 조회 ──────────────────────────────────
 @app.get("/api/stats/team-rank")
 def get_team_rank():
     try:
@@ -522,7 +398,7 @@ def get_team_rank():
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-# ── 선수 타격 기록 조회 ───────────────────────────
+# ── 타자 기록 조회 ────────────────────────────────
 @app.get("/api/stats/hitters")
 def get_hitter_stats(sort: Optional[str] = "woba", limit: int = 50):
     try:
@@ -576,5 +452,151 @@ def get_hitter_stats(sort: Optional[str] = "woba", limit: int = 50):
         cur.close()
         conn.close()
         return {"hitters": [dict(r) for r in rows]}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ── 타순 최적화 ───────────────────────────────────
+@app.post("/api/lineup/optimize")
+def optimize_lineup(req: SimulateRequest):
+    try:
+        lineup = [record_to_player_prob(BattingRecord(**p.dict())) for p in req.team_a_lineup]
+
+        def obp(p):
+            return p.bb + p.single + p.double + p.triple + p.hr
+
+        def ops(p):
+            return obp(p) + p.single + 2*p.double + 3*p.triple + 4*p.hr
+
+        sorted_by_obp = sorted(lineup, key=obp, reverse=True)
+        sorted_by_ops = sorted(lineup, key=ops, reverse=True)
+        sorted_by_hr  = sorted(lineup, key=lambda p: p.hr, reverse=True)
+
+        used   = set()
+        result = []
+
+        def pick(candidates):
+            for p in candidates:
+                if p.name not in used:
+                    used.add(p.name)
+                    result.append(p)
+                    return
+
+        pick(sorted_by_obp)
+        pick(sorted_by_ops)
+        pick(sorted_by_ops)
+        pick(sorted_by_hr)
+        pick(sorted_by_hr)
+        for p in sorted_by_ops:
+            if p.name not in used:
+                result.append(p)
+                used.add(p.name)
+
+        return {"optimized_order": [p.name for p in result]}
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ── KBO 경기 일정 조회 ────────────────────────────
+@app.get("/api/schedule")
+def get_schedule(month: Optional[str] = None):
+    try:
+        now = datetime.now()
+        target_month = month or f"{now.month:02d}"
+
+        data = urllib.parse.urlencode({
+            "leId": "1",
+            "srId": "0",
+            "srIdList": "0,9",
+            "seasonId": "2026",
+            "gameWeek": "",
+            "teamId": "",
+            "stadiumId": "",
+            "gameId": "",
+            "gameDay": "",
+            "gameMonth": target_month,
+        }).encode()
+
+        req = urllib.request.Request(
+            "https://www.koreabaseball.com/ws/Schedule.asmx/GetScheduleList",
+            data=data,
+            headers={
+                "Content-Type": "application/x-www-form-urlencoded",
+                "User-Agent": "Mozilla/5.0",
+                "Referer": "https://www.koreabaseball.com/Schedule/Schedule.aspx",
+            }
+        )
+        with urllib.request.urlopen(req, timeout=10) as res:
+            raw = json_lib.loads(res.read().decode("utf-8"))
+
+        STADIUMS = ["잠실","문학","사직","수원","고척","대구","광주","창원","대전","포항","울산","인천"]
+        games = []
+        current_date = ""
+
+        for row_obj in raw.get("rows", []):
+            cells = row_obj.get("row", [])
+            if not cells:
+                continue
+
+            for cell in cells:
+                if cell.get("Class") == "day":
+                    current_date = re.sub(r"<[^>]+>", "", cell.get("Text", "")).strip()
+                    break
+
+            time_text    = ""
+            play_text    = ""
+            stadium_text = ""
+            status_text  = ""
+
+            for cell in cells:
+                cls  = cell.get("Class")
+                text = cell.get("Text", "")
+                if cls == "time":
+                    time_text = re.sub(r"<[^>]+>", "", text).strip()
+                elif cls == "play":
+                    play_text = text
+                elif cls is None and any(s in text for s in STADIUMS):
+                    stadium_text = text
+                elif "우천" in text or "취소" in text:
+                    status_text = text
+
+            if not play_text or not current_date:
+                continue
+
+            teams  = re.findall(r"<span(?:[^>]*)>([^<]+)</span>", play_text)
+            scores = re.findall(r'<span class="(?:win|lose|same)">([^<]+)</span>', play_text)
+            win_cls = re.findall(r'<span class="(win|lose|same)">', play_text)
+
+            if len(teams) < 2:
+                continue
+
+            team_a = teams[0]
+            team_b = teams[-1]
+            score_a = scores[0] if len(scores) >= 1 else None
+            score_b = scores[1] if len(scores) >= 2 else None
+
+            if win_cls and score_a and score_b:
+                if win_cls[0] == "win":
+                    result = f"{team_a} 승"
+                elif win_cls[0] == "lose":
+                    result = f"{team_b} 승"
+                else:
+                    result = "무승부"
+            else:
+                result = None
+
+            games.append({
+                "date":    current_date,
+                "time":    time_text,
+                "team_a":  team_a,
+                "team_b":  team_b,
+                "score_a": score_a,
+                "score_b": score_b,
+                "result":  result,
+                "stadium": stadium_text,
+                "status":  status_text or None,
+            })
+
+        return {"month": target_month, "games": games}
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

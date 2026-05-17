@@ -8,6 +8,7 @@ import NotFoundPage from './pages/NotFoundPage';
 import MyTeamPage from './pages/MyTeamPage';
 import { useSearchHistory } from './hooks/useSearchHistory';
 import StatsPage from './pages/StatsPage';
+import SchedulePage from './pages/SchedulePage';
 
 function NavBar() {
   const [query, setQuery] = useState('');
@@ -60,6 +61,7 @@ function NavBar() {
         { to: '/lineup',    label: '타순 배치' },
         { to: '/my-team',   label: '나만의 팀' },
         { to: '/stats',     label: '기록실' },
+        { to: '/schedule', label: '경기 일정' },
         ].map(({ to, label }) => (
         <NavLink
           key={to}
@@ -145,6 +147,7 @@ export default function App() {
         <Route path="*"          element={<NotFoundPage />} />
         <Route path="/player/:playerId" element={<PlayerPage />} />
         <Route path="/stats" element={<StatsPage />} />
+        <Route path="/schedule" element={<SchedulePage />} />
       </Routes>
     </BrowserRouter>
   );
