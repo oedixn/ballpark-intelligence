@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, useParams } from 'react-router-dom';
 import PercentileBar from '../components/player/PercentileBar';
 import PlayerRadarChart from '../components/player/RadarChart';
 import InsightBox from '../components/player/InsightBox';
@@ -10,7 +10,6 @@ import { fetchPlayers, fetchPlayerById } from '../api/playerApi';
 import type { PlayerDB } from '../api/playerApi';
 import type { Player } from '../data/mockPlayers';
 
-// DB 선수 → Player 타입 변환
 function dbToPlayer(p: PlayerDB): Player {
   return {
     id: Number(p.player_id),
@@ -32,19 +31,9 @@ function dbToPlayer(p: PlayerDB): Player {
       { stat: '수비',   value: 60 },
       { stat: '출루',   value: Math.min(99, Math.round(Number(p.obp     ?? 0) * 200)) },
     ],
-    raw: {
-      ab:     Number(p.ab         ?? 300),
-      hits:   Number(p.h          ?? 80),
-      double: Number(p.double_hit ?? 15),
-      triple: Number(p.triple_hit ?? 2),
-      hr:     Number(p.hr         ?? 5),
-      bb:     Number(p.bb         ?? 30),
-      hbp:    Number(p.hbp        ?? 3),
-    },
   };
 }
 
-// 리그 평균 기준으로 퍼센타일 계산 (간단 추정)
 function calcPercentile(label: string, value: number): number {
   const benchmarks: Record<string, { min: number; max: number }> = {
     'wOBA': { min: 0.250, max: 0.450 },
@@ -56,31 +45,51 @@ function calcPercentile(label: string, value: number): number {
   const b = benchmarks[label];
   if (!b) return 50;
   const pct = ((value - b.min) / (b.max - b.min)) * 100;
-  // K%는 낮을수록 좋음
   return label === 'K%'
     ? Math.min(99, Math.max(1, Math.round(100 - pct)))
     : Math.min(99, Math.max(1, Math.round(pct)));
 }
 
 export default function PlayerPage() {
-  const [player, setPlayer]       = useState<Player | null>(null);
-  const [players, setPlayers]     = useState<Player[]>([]);
-  const [loading, setLoading]     = useState(false);
+  const [player, setPlayer]           = useState<Player | null>(null);
+  const [players, setPlayers]         = useState<Player[]>([]);
+  const [loading, setLoading]         = useState(false);
   const [listLoading, setListLoading] = useState(false);
-  const [error, setError]         = useState(false);
-  const [query, setQuery]         = useState('');
-  const [showList, setShowList]   = useState(true);
-  const [searchParams]            = useSearchParams();
+  const [error, setError]             = useState(false);
+  const [query, setQuery]             = useState('');
+  const [showList, setShowList]       = useState(true);
+  const [searchParams]                = useSearchParams();
+  const { playerId }                  = useParams<{ playerId: string }>();
+
+  // URL playerId 파라미터로 바로 선수 로드
+  useEffect(() => {
+    if (!playerId) return;
+    setShowList(false);
+    setLoading(true);
+    setError(false);
+    fetchPlayerById(playerId)
+      .then((data) => {
+        const converted = dbToPlayer(data);
+        converted.stats = converted.stats.map((s) => ({
+          ...s,
+          percentile: calcPercentile(s.label, s.value),
+        }));
+        setPlayer(converted);
+      })
+      .catch(() => setError(true))
+      .finally(() => setLoading(false));
+  }, [playerId]);
 
   // URL 검색 파라미터 반영
   useEffect(() => {
+    if (playerId) return;
     const q = searchParams.get('search');
     if (q) {
       setQuery(q);
       setShowList(true);
       setPlayer(null);
     }
-  }, [searchParams]);
+  }, [searchParams, playerId]);
 
   // 검색어 변경 시 API 호출
   useEffect(() => {
@@ -94,7 +103,6 @@ export default function PlayerPage() {
         const data = await fetchPlayers(query);
         const converted = data.map((p) => {
           const player = dbToPlayer(p);
-          // 퍼센타일 계산 적용
           player.stats = player.stats.map((s) => ({
             ...s,
             percentile: calcPercentile(s.label, s.value),
@@ -136,13 +144,12 @@ export default function PlayerPage() {
   };
 
   // 선수 목록 화면
-  if (showList) {
+  if (showList && !playerId) {
     return (
       <div className="min-h-screen bg-gray-900 px-10 py-8">
         <h1 className="text-white text-3xl font-black mb-2">선수 프로필</h1>
         <p className="text-gray-400 text-sm mb-6">선수 이름 또는 팀명으로 검색하세요</p>
 
-        {/* 검색창 */}
         <div className="relative max-w-lg mb-6">
           <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">🔍</span>
           <input
@@ -162,20 +169,13 @@ export default function PlayerPage() {
           )}
         </div>
 
-        {/* 검색 결과 */}
         <div className="max-w-lg space-y-2">
           {listLoading ? (
-            <p className="text-gray-500 text-sm text-center py-10 animate-pulse">
-              검색 중...
-            </p>
+            <p className="text-gray-500 text-sm text-center py-10 animate-pulse">검색 중...</p>
           ) : query && players.length === 0 ? (
-            <p className="text-gray-500 text-sm text-center py-10">
-              검색 결과가 없습니다
-            </p>
+            <p className="text-gray-500 text-sm text-center py-10">검색 결과가 없습니다</p>
           ) : !query ? (
-            <p className="text-gray-600 text-sm text-center py-10">
-              선수 이름을 입력해서 검색하세요
-            </p>
+            <p className="text-gray-600 text-sm text-center py-10">선수 이름을 입력해서 검색하세요</p>
           ) : (
             players.map((p) => (
               <PlayerCard key={p.id} player={p} onClick={selectPlayer} />
@@ -186,16 +186,12 @@ export default function PlayerPage() {
     );
   }
 
-  // 로딩
   if (loading) return <LoadingSpinner />;
-  if (error) return <ErrorBox onRetry={() => player && selectPlayer(player)} />;
+  if (error) return <ErrorBox onRetry={handleBack} />;
   if (!player) return null;
 
-  // 선수 프로필 화면
   return (
     <div className="min-h-screen bg-gray-900">
-
-      {/* 상단 헤더 */}
       <div className="bg-gradient-to-r from-gray-800 to-gray-900 border-b border-gray-700 px-10 py-8">
         <div className="flex items-center gap-6">
           <button
@@ -227,7 +223,6 @@ export default function PlayerPage() {
         </div>
       </div>
 
-      {/* 본문 */}
       <div className="px-10 py-8">
         <div className="flex gap-6 mb-6">
           <div className="bg-gray-800 rounded-xl p-6 w-96">
@@ -243,9 +238,7 @@ export default function PlayerPage() {
             ))}
           </div>
           <div className="bg-gray-800 rounded-xl p-6 w-80">
-            <p className="text-gray-400 text-xs mb-2 uppercase tracking-widest text-center">
-              능력치 레이더
-            </p>
+            <p className="text-gray-400 text-xs mb-2 uppercase tracking-widest text-center">능력치 레이더</p>
             <PlayerRadarChart data={player.radar} />
           </div>
         </div>
@@ -253,7 +246,6 @@ export default function PlayerPage() {
           <InsightBox name={player.name} stats={player.stats} />
         </div>
       </div>
-
     </div>
   );
 }

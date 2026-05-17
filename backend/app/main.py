@@ -383,3 +383,89 @@ def optimize_lineup(req: SimulateRequest):
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+    
+    # ── 팀 순위 조회 ──────────────────────────────────
+@app.get("/api/stats/team-rank")
+def get_team_rank():
+    try:
+        conn = get_conn()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("""
+            SELECT
+                t.team_name,
+                r.games,
+                r.wins,
+                r.losses,
+                r.draws,
+                r.win_rate,
+                r.last10,
+                r.streak,
+                ROW_NUMBER() OVER (ORDER BY r.win_rate DESC) AS rank
+            FROM team_rank_stats r
+            JOIN teams t ON r.team_id = t.team_id
+            WHERE r.season_year = %s
+            ORDER BY r.win_rate DESC
+        """, (LATEST_SEASON,))
+        rows = cur.fetchall()
+        cur.close()
+        conn.close()
+        return {"teams": [dict(r) for r in rows]}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ── 선수 타격 기록 조회 ───────────────────────────
+@app.get("/api/stats/hitters")
+def get_hitter_stats(sort: Optional[str] = "woba", limit: int = 50):
+    try:
+        conn = get_conn()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+        sort_col = {
+            "woba": "woba",
+            "ops":  "pst.ops",
+            "hr":   "pst.hr",
+            "avg":  "pst.avg",
+            "rbi":  "pst.rbi",
+        }.get(sort, "woba")
+
+        cur.execute(f"""
+            SELECT
+                p.player_id,
+                p.player_name,
+                t.team_name,
+                pst.avg,
+                pst.pa,
+                pst.hr,
+                pst.rbi,
+                pst.obp,
+                pst.slg,
+                pst.ops,
+                ROUND(CAST(pst.bb AS NUMERIC) / NULLIF(pst.pa, 0) * 100, 1) AS bb_rate,
+                ROUND(CAST(pst.so AS NUMERIC) / NULLIF(pst.pa, 0) * 100, 1) AS k_rate,
+                ROUND(
+                    CAST(
+                        (pst.bb * 0.69 + pst.hbp * 0.72
+                        + (pst.h - pst.double_hit - pst.triple_hit - pst.hr) * 0.87
+                        + pst.double_hit * 1.217 + pst.triple_hit * 1.529 + pst.hr * 1.74)
+                        / NULLIF(pst.pa, 0)
+                    AS NUMERIC), 3
+                ) AS woba,
+                def.position
+            FROM players p
+            JOIN player_hitter_stats pst ON p.player_id = pst.player_id
+            JOIN teams t ON pst.team_id = t.team_id
+            LEFT JOIN player_defense_stats def
+                ON p.player_id = def.player_id
+                AND pst.season_year = def.season_year
+            WHERE pst.season_year = %s
+              AND pst.pa >= 50
+            ORDER BY {sort_col} DESC NULLS LAST
+            LIMIT %s
+        """, (LATEST_SEASON, limit))
+
+        rows = cur.fetchall()
+        cur.close()
+        conn.close()
+        return {"hitters": [dict(r) for r in rows]}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
