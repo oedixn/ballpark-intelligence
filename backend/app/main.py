@@ -13,6 +13,7 @@ import urllib.request
 import urllib.parse
 import json as json_lib
 from datetime import datetime
+from fastapi.responses import Response
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from game_simulator.simulator_main import (
@@ -600,3 +601,26 @@ def get_schedule(month: Optional[str] = None):
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+    
+
+# ── 선수 이미지 프록시 ─────────────────────────
+@app.get("/api/player-image/{player_id}")
+def get_player_image(player_id: int):
+    try:
+        url = f"https://www.koreabaseball.com/file/Image/Player/2026/M/{player_id}.jpg"
+        req = urllib.request.Request(url, headers={
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Referer": "https://www.koreabaseball.com/Player/Search.aspx",
+            "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+            "Accept-Language": "ko-KR,ko;q=0.9",
+        })
+        with urllib.request.urlopen(req, timeout=5) as res:
+            data = res.read()
+            content_type = res.headers.get("Content-Type", "image/jpeg")
+            if "html" in content_type.lower():
+                raise HTTPException(status_code=404, detail="이미지 없음")
+            return Response(content=data, media_type="image/jpeg")
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=404, detail="이미지 없음")

@@ -10,6 +10,28 @@ import { fetchPlayers, fetchPlayerById } from '../api/playerApi';
 import type { PlayerDB } from '../api/playerApi';
 import type { Player } from '../data/mockPlayers';
 
+function PlayerAvatar({ position }: { position: string }) {
+  const positionColors: Record<string, string> = {
+    '포수':   'bg-blue-600',
+    '1루수':  'bg-red-600',
+    '2루수':  'bg-green-600',
+    '3루수':  'bg-yellow-600',
+    '유격수': 'bg-purple-600',
+    '좌익수': 'bg-pink-600',
+    '중견수': 'bg-teal-600',
+    '우익수': 'bg-orange-600',
+    '지명타자': 'bg-gray-600',
+  };
+
+  const color = positionColors[position] ?? 'bg-orange-500';
+
+  return (
+    <div className={`w-20 h-20 rounded-full ${color} flex items-center justify-center shrink-0`}>
+      <span className="text-white text-sm font-black">{position}</span>
+    </div>
+  );
+}
+
 function dbToPlayer(p: PlayerDB): Player {
   return {
     id: Number(p.player_id),
@@ -45,21 +67,17 @@ export default function PlayerPage() {
   const [searchParams]                = useSearchParams();
   const { playerId }                  = useParams<{ playerId: string }>();
 
-  // URL playerId 파라미터로 바로 선수 로드
   useEffect(() => {
     if (!playerId) return;
     setShowList(false);
     setLoading(true);
     setError(false);
     fetchPlayerById(playerId)
-      .then((data) => {
-        setPlayer(dbToPlayer(data));
-      })
+      .then((data) => setPlayer(dbToPlayer(data)))
       .catch(() => setError(true))
       .finally(() => setLoading(false));
   }, [playerId]);
 
-  // URL 검색 파라미터 반영
   useEffect(() => {
     if (playerId) return;
     const q = searchParams.get('search');
@@ -70,12 +88,8 @@ export default function PlayerPage() {
     }
   }, [searchParams, playerId]);
 
-  // 검색어 변경 시 API 호출
   useEffect(() => {
-    if (!query.trim()) {
-      setPlayers([]);
-      return;
-    }
+    if (!query.trim()) { setPlayers([]); return; }
     const timer = setTimeout(async () => {
       setListLoading(true);
       try {
@@ -109,7 +123,6 @@ export default function PlayerPage() {
     setShowList(true);
   }
 
-  // 선수 목록 화면
   if (showList && !playerId) {
     return (
       <div className="min-h-screen bg-gray-900 px-10 py-8">
@@ -153,7 +166,7 @@ export default function PlayerPage() {
   }
 
   if (loading) return <LoadingSpinner />;
-  if (error) return <ErrorBox onRetry={handleBack} />;
+  if (error)   return <ErrorBox onRetry={handleBack} />;
   if (!player) return null;
 
   return (
@@ -166,9 +179,9 @@ export default function PlayerPage() {
           >
             ← 목록
           </button>
-          <div className="w-20 h-20 rounded-full bg-orange-500 flex items-center justify-center shrink-0">
-            <span className="text-white text-xs font-black">{player.position}</span>
-          </div>
+
+          <PlayerAvatar position={player.position} />
+
           <div>
             <div className="flex items-center gap-3 mb-1">
               <h1 className="text-white text-4xl font-black">{player.name}</h1>
@@ -178,6 +191,7 @@ export default function PlayerPage() {
             </div>
             <p className="text-gray-400 text-sm">{player.team}</p>
           </div>
+
           <div className="ml-auto flex gap-8">
             {player.stats.slice(0, 3).map((s) => (
               <div key={s.label} className="text-center">
