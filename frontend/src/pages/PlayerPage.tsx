@@ -6,25 +6,16 @@ import InsightBox from '../components/player/InsightBox';
 import PlayerCard from '../components/player/PlayerCard';
 import LoadingSpinner from '../components/common/LoadingSpinner';
 import ErrorBox from '../components/common/ErrorBox';
-import { fetchPlayers, fetchPlayerById } from '../api/playerApi';
-import type { PlayerDB } from '../api/playerApi';
+import { fetchPlayers, fetchPlayerById, fetchPlayerSeasons } from '../api/playerApi';
+import type { PlayerDB, PlayerSeasons } from '../api/playerApi';
 import type { Player } from '../data/mockPlayers';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, BarChart, Bar } from 'recharts';
-import { fetchPlayerSeasons } from '../api/playerApi';
-import type { PlayerSeasons } from '../api/playerApi';
 
 function PlayerAvatar({ position }: { position: string }) {
   const positionColors: Record<string, string> = {
-    '포수':     'bg-blue-600',
-    '1루수':    'bg-red-600',
-    '2루수':    'bg-green-600',
-    '3루수':    'bg-yellow-600',
-    '유격수':   'bg-purple-600',
-    '좌익수':   'bg-pink-600',
-    '중견수':   'bg-teal-600',
-    '우익수':   'bg-orange-600',
-    '지명타자': 'bg-gray-600',
-    '투수':     'bg-blue-700',
+    '포수': 'bg-blue-600', '1루수': 'bg-red-600', '2루수': 'bg-green-600',
+    '3루수': 'bg-yellow-600', '유격수': 'bg-purple-600', '좌익수': 'bg-pink-600',
+    '중견수': 'bg-teal-600', '우익수': 'bg-orange-600', '지명타자': 'bg-gray-600', '투수': 'bg-blue-700',
   };
   const color = positionColors[position] ?? 'bg-orange-500';
   return (
@@ -42,11 +33,11 @@ function dbToPlayer(p: PlayerDB): Player {
     team: p.team_name,
     position: p.position ?? (isPitcher ? '투수' : '-'),
     stats: isPitcher ? [
-      { label: 'ERA',   value: Number((p as any).era  ?? 0), percentile: Number((p as any).era_percentile  ?? 0), unit: 'ERA'  },
-      { label: '승',    value: Number((p as any).w    ?? 0), percentile: Number((p as any).w_percentile    ?? 0), unit: '승'   },
-      { label: '세이브', value: Number((p as any).sv  ?? 0), percentile: Number((p as any).sv_percentile   ?? 0), unit: '세'   },
-      { label: '탈삼진', value: Number((p as any).pitcher_so ?? 0), percentile: Number((p as any).so_percentile ?? 0), unit: 'K' },
-      { label: 'WHIP',  value: Number((p as any).whip ?? 0), percentile: Number((p as any).whip_percentile ?? 0), unit: 'WHIP' },
+      { label: 'ERA',    value: Number((p as any).era  ?? 0), percentile: Number((p as any).era_percentile  ?? 0), unit: 'ERA'  },
+      { label: '승',     value: Number((p as any).w    ?? 0), percentile: Number((p as any).w_percentile    ?? 0), unit: '승'   },
+      { label: '세이브',  value: Number((p as any).sv  ?? 0), percentile: Number((p as any).sv_percentile   ?? 0), unit: '세'   },
+      { label: '탈삼진',  value: Number((p as any).pitcher_so ?? 0), percentile: Number((p as any).so_percentile ?? 0), unit: 'K' },
+      { label: 'WHIP',   value: Number((p as any).whip ?? 0), percentile: Number((p as any).whip_percentile ?? 0), unit: 'WHIP' },
     ] : [
       { label: 'wOBA', value: Number(p.woba    ?? 0), percentile: Number((p as any).woba_percentile ?? 0), unit: 'wOBA' },
       { label: 'OPS',  value: Number(p.ops     ?? 0), percentile: Number((p as any).ops_percentile  ?? 0), unit: 'OPS'  },
@@ -73,37 +64,37 @@ function dbToPlayer(p: PlayerDB): Player {
 }
 
 export default function PlayerPage() {
-  const [player, setPlayer]               = useState<Player | null>(null);
-  const [rawData, setRawData]             = useState<PlayerDB | null>(null);
-  const [players, setPlayers]             = useState<Player[]>([]);
-  const [loading, setLoading]             = useState(false);
-  const [listLoading, setListLoading]     = useState(false);
-  const [error, setError]                 = useState(false);
-  const [query, setQuery]                 = useState('');
-  const [showList, setShowList]           = useState(true);
+  const [player, setPlayer]                 = useState<Player | null>(null);
+  const [rawData, setRawData]               = useState<PlayerDB | null>(null);
+  const [players, setPlayers]               = useState<Player[]>([]);
+  const [loading, setLoading]               = useState(false);
+  const [listLoading, setListLoading]       = useState(false);
+  const [error, setError]                   = useState(false);
+  const [query, setQuery]                   = useState('');
+  const [showList, setShowList]             = useState(true);
   const [selectedSeason, setSelectedSeason] = useState<number | null>(null);
-  const [searchParams]                    = useSearchParams();
-  const { playerId }                      = useParams<{ playerId: string }>();
-  const [seasons, setSeasons] = useState<PlayerSeasons | null>(null);
+  const [seasons, setSeasons]               = useState<PlayerSeasons | null>(null);
+  const [searchParams]                      = useSearchParams();
+  const { playerId }                        = useParams<{ playerId: string }>();
 
   async function loadPlayer(id: string, season?: number) {
-  setLoading(true);
-  setError(false);
-  try {
-    const [data, seasonData] = await Promise.all([
-      fetchPlayerById(id, season),
-      fetchPlayerSeasons(id),
-    ]);
-    setRawData(data);
-    setPlayer(dbToPlayer(data));
-    setSelectedSeason(data.current_season ?? null);
-    setSeasons(seasonData);
-  } catch {
-    setError(true);
-  } finally {
-    setLoading(false);
+    setLoading(true);
+    setError(false);
+    try {
+      const [data, seasonData] = await Promise.all([
+        fetchPlayerById(id, season),
+        fetchPlayerSeasons(id),
+      ]);
+      setRawData(data);
+      setPlayer(dbToPlayer(data));
+      setSelectedSeason(data.current_season ?? null);
+      setSeasons(seasonData);
+    } catch {
+      setError(true);
+    } finally {
+      setLoading(false);
+    }
   }
-}
 
   useEffect(() => {
     if (!playerId) return;
@@ -136,16 +127,17 @@ export default function PlayerPage() {
   }
 
   async function handleSeasonChange(season: number) {
-    if (!playerId && rawData) {
-      await loadPlayer(rawData.player_id, season);
-    } else if (playerId) {
-      await loadPlayer(playerId, season);
-    }
+    const id = playerId ?? rawData?.player_id;
+    if (id) await loadPlayer(id, season);
   }
 
-  function handleBack() { setPlayer(null); setShowList(true); setRawData(null); setSelectedSeason(null); }
+  function handleBack() {
+    setPlayer(null); setShowList(true);
+    setRawData(null); setSelectedSeason(null);
+  }
 
   const availableSeasons = rawData?.available_seasons ?? [];
+  const isPitcher = rawData && (rawData as any).era !== undefined && (rawData as any).era !== null && !(rawData as any).avg;
 
   if (showList && !playerId) {
     return (
@@ -197,18 +189,12 @@ export default function PlayerPage() {
               <span className="bg-orange-500 text-white text-xs font-bold px-2 py-1 rounded">{player.position}</span>
             </div>
             <p className="text-gray-400 text-sm">{player.team}</p>
-
-            {/* 시즌 탭 */}
             {availableSeasons.length > 1 && (
               <div className="flex gap-2 mt-3">
                 {availableSeasons.map((s) => (
-                  <button
-                    key={s}
-                    onClick={() => handleSeasonChange(s)}
+                  <button key={s} onClick={() => handleSeasonChange(s)}
                     className={`px-3 py-1 rounded-lg text-xs font-bold transition-colors ${
-                      selectedSeason === s
-                        ? 'bg-orange-500 text-white'
-                        : 'bg-gray-700 text-gray-400 hover:text-white'
+                      selectedSeason === s ? 'bg-orange-500 text-white' : 'bg-gray-700 text-gray-400 hover:text-white'
                     }`}
                   >
                     {s}
@@ -217,26 +203,52 @@ export default function PlayerPage() {
               </div>
             )}
           </div>
-          <div className="ml-auto flex gap-8">
-            {player.stats.slice(0, 3).map((s) => (
-              <div key={s.label} className="text-center">
-              <p className="text-orange-400 text-2xl font-black">{s.value}</p>
-              <p className="text-gray-400 text-xs mt-1">{s.label}</p>
-            </div>
-            ))}
-            {/* 타자일 때만 wRC+ 표시 */}
-            {rawData && (rawData as any).wrc_plus !== undefined && (rawData as any).wrc_plus !== null && (
-              <div className="text-center border-l border-gray-700 pl-8">
-              <p className={`text-2xl font-black ${
-                Number((rawData as any).wrc_plus) >= 130 ? 'text-orange-400' :
-                Number((rawData as any).wrc_plus) >= 100 ? 'text-green-400' : 'text-gray-400'
-              }`}>
-                {Number((rawData as any).wrc_plus)}
-              </p>
-            <p className="text-gray-400 text-xs mt-1">wRC+</p>
+
+          {/* 스탯 바 */}
+          <div className="ml-auto flex gap-6">
+            {!isPitcher ? (
+              <>
+                {[
+                  { label: 'AVG',  value: Number(rawData?.avg  ?? 0).toFixed(3) },
+                  { label: 'OBP',  value: Number(rawData?.obp  ?? 0).toFixed(3) },
+                  { label: 'SLG',  value: Number(rawData?.slg  ?? 0).toFixed(3) },
+                  { label: 'OPS',  value: Number(rawData?.ops  ?? 0).toFixed(3) },
+                  { label: 'wOBA', value: Number(rawData?.woba ?? 0).toFixed(3) },
+                ].map((s) => (
+                  <div key={s.label} className="text-center">
+                    <p className="text-orange-400 text-xl font-black">{s.value}</p>
+                    <p className="text-gray-400 text-xs mt-1">{s.label}</p>
+                  </div>
+                ))}
+                {(rawData as any)?.wrc_plus != null && (
+                  <div className="text-center border-l border-gray-700 pl-6">
+                    <p className={`text-xl font-black ${
+                      Number((rawData as any).wrc_plus) >= 130 ? 'text-orange-400' :
+                      Number((rawData as any).wrc_plus) >= 100 ? 'text-green-400' : 'text-gray-400'
+                    }`}>
+                      {Number((rawData as any).wrc_plus)}
+                    </p>
+                    <p className="text-gray-400 text-xs mt-1">wRC+</p>
+                  </div>
+                )}
+              </>
+            ) : (
+              <>
+                {[
+                  { label: 'ERA',  value: Number((rawData as any)?.era  ?? 0).toFixed(2) },
+                  { label: 'W-L',  value: `${(rawData as any)?.w ?? 0}-${(rawData as any)?.l ?? 0}` },
+                  { label: 'IP',   value: (rawData as any)?.ip ?? '0' },
+                  { label: 'SO',   value: String((rawData as any)?.pitcher_so ?? 0) },
+                  { label: 'WHIP', value: Number((rawData as any)?.whip ?? 0).toFixed(2) },
+                ].map((s) => (
+                  <div key={s.label} className="text-center">
+                    <p className="text-orange-400 text-xl font-black">{s.value}</p>
+                    <p className="text-gray-400 text-xs mt-1">{s.label}</p>
+                  </div>
+                ))}
+              </>
+            )}
           </div>
-          )}
-        </div>
         </div>
       </div>
 
@@ -256,6 +268,7 @@ export default function PlayerPage() {
             <PlayerRadarChart data={player.radar} />
           </div>
         </div>
+
         <div className="max-w-xl">
           <InsightBox name={player.name} stats={player.stats} />
         </div>
@@ -264,7 +277,6 @@ export default function PlayerPage() {
         {seasons && seasons.seasons.length >= 2 && (
           <div className="bg-gray-800 rounded-xl p-6 mt-6 max-w-3xl">
             <p className="text-gray-400 text-xs mb-6 uppercase tracking-widest">연도별 성적 추이</p>
-
             {seasons.type === 'hitter' ? (
               <>
                 <div className="mb-8">
@@ -281,7 +293,6 @@ export default function PlayerPage() {
                     </LineChart>
                   </ResponsiveContainer>
                 </div>
-
                 <div className="mb-8">
                   <p className="text-gray-500 text-xs mb-3">홈런 / 타율</p>
                   <ResponsiveContainer width="100%" height={200}>
@@ -297,7 +308,6 @@ export default function PlayerPage() {
                     </BarChart>
                   </ResponsiveContainer>
                 </div>
-
                 <div>
                   <p className="text-gray-500 text-xs mb-3">BB% / K%</p>
                   <ResponsiveContainer width="100%" height={200}>
@@ -329,7 +339,6 @@ export default function PlayerPage() {
                     </LineChart>
                   </ResponsiveContainer>
                 </div>
-
                 <div>
                   <p className="text-gray-500 text-xs mb-3">승 / 탈삼진</p>
                   <ResponsiveContainer width="100%" height={200}>
