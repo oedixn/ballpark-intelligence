@@ -33,19 +33,34 @@ function PlayerAvatar({ position }: { position: string }) {
 }
 
 function dbToPlayer(p: PlayerDB): Player {
+  const isPitcher = (p as any).era !== undefined && (p as any).era !== null && !(p as any).avg;
+
   return {
     id: Number(p.player_id),
     name: p.player_name,
     team: p.team_name,
-    position: p.position ?? '-',
-    stats: [
+    position: p.position ?? (isPitcher ? '투수' : '-'),
+    stats: isPitcher ? [
+  { label: 'ERA',   value: Number((p as any).era  ?? 0), percentile: Number((p as any).era_percentile  ?? 0), unit: 'ERA'  },
+  { label: '승',    value: Number((p as any).w    ?? 0), percentile: Number((p as any).w_percentile    ?? 0), unit: '승'   },
+  { label: '세이브', value: Number((p as any).sv  ?? 0), percentile: Number((p as any).sv_percentile   ?? 0), unit: '세'   },
+  { label: '탈삼진', value: Number((p as any).pitcher_so ?? 0), percentile: Number((p as any).so_percentile ?? 0), unit: 'K' },
+  { label: 'WHIP',  value: Number((p as any).whip ?? 0), percentile: Number((p as any).whip_percentile ?? 0), unit: 'WHIP' },
+] : [
       { label: 'wOBA', value: Number(p.woba    ?? 0), percentile: Number((p as any).woba_percentile ?? 0), unit: 'wOBA' },
       { label: 'OPS',  value: Number(p.ops     ?? 0), percentile: Number((p as any).ops_percentile  ?? 0), unit: 'OPS'  },
       { label: 'HR',   value: Number(p.hr      ?? 0), percentile: Number((p as any).hr_percentile   ?? 0), unit: 'HR'   },
       { label: 'BB%',  value: Number(p.bb_rate ?? 0), percentile: Number((p as any).bb_percentile   ?? 0), unit: '%'    },
       { label: 'K%',   value: Number(p.k_rate  ?? 0), percentile: Number((p as any).k_percentile    ?? 0), unit: '%'    },
     ],
-    radar: [
+    radar: isPitcher ? [
+      { stat: '구위',   value: Math.min(99, Math.max(1, Math.round(100 - Number((p as any).era ?? 5) * 10))) },
+      { stat: '제구',   value: Math.min(99, Math.max(1, Math.round(100 - Number((p as any).whip ?? 2) * 30))) },
+      { stat: '탈삼진', value: Math.min(99, Math.round(Number((p as any).pitcher_so ?? 0) * 1.5)) },
+      { stat: '이닝',   value: 60 },
+      { stat: '수비',   value: 60 },
+      { stat: '승리',   value: Math.min(99, Math.round(Number((p as any).w ?? 0) * 8)) },
+    ] : [
       { stat: '컨택',   value: Math.min(99, Math.round(Number(p.avg     ?? 0) * 300)) },
       { stat: '파워',   value: Math.min(99, Math.round(Number((p as any).iso ?? 0) * 400)) },
       { stat: '선구안', value: Math.min(99, Math.round(Number(p.bb_rate ?? 0) * 5))   },
