@@ -135,26 +135,48 @@ def get_players(search: Optional[str] = None):
 
 # ── 선수 상세 조회 ────────────────────────────────
 @app.get("/api/players/{player_id}")
-def get_player(player_id: int):
+def get_player(player_id: int, season: Optional[int] = None):
+    target_season = season or LATEST_SEASON
     try:
         conn = get_conn()
         cur  = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
+        # 보유 시즌 목록 조회
+        cur.execute("""
+            SELECT array_agg(DISTINCT season_year ORDER BY season_year DESC) AS seasons
+            FROM (
+                SELECT season_year FROM player_hitter_stats WHERE player_id = %s::varchar AND pa > 0
+                UNION
+                SELECT season_year FROM player_pitcher_stats WHERE player_id = %s::varchar
+            ) s
+        """, (player_id, player_id))
+        seasons_row = cur.fetchone()
+        available_seasons = list(seasons_row['seasons'] or [])
+
+        # 타자 조회
         cur.execute(
             "SELECT * FROM (" + PLAYER_SELECT + " WHERE pst.season_year=%s AND pst.pa > 0) sub WHERE sub.player_id=%s::varchar",
-            (LATEST_SEASON, player_id)
+            (target_season, player_id)
         )
         row = cur.fetchone()
 
         if not row:
-            cur.execute("SELECT * FROM (" + PITCHER_SELECT + " WHERE ps.season_year=%s) sub WHERE sub.player_id=%s::varchar",
-                (LATEST_SEASON, player_id))
+            cur.execute(
+                "SELECT * FROM (" + PITCHER_SELECT + " WHERE ps.season_year=%s) sub WHERE sub.player_id=%s::varchar",
+                (target_season, player_id)
+            )
             row = cur.fetchone()
 
         cur.close(); conn.close()
+
         if not row:
             raise HTTPException(status_code=404, detail="선수를 찾을 수 없습니다.")
-        return dict(row)
+
+        result = dict(row)
+        result['available_seasons'] = available_seasons
+        result['current_season'] = target_season
+        return result
+
     except HTTPException: raise
     except Exception as e: raise HTTPException(status_code=500, detail=str(e))
 

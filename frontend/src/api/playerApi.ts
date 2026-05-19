@@ -1,8 +1,6 @@
 import axios from 'axios';
 
-const api = axios.create({
-  baseURL: 'http://localhost:8000',
-});
+const api = axios.create({ baseURL: 'http://localhost:8000' });
 
 export interface PlayerDB {
   player_id: string;
@@ -32,6 +30,8 @@ export interface PlayerDB {
   war: number | null;
   woba: number | null;
   position: string | null;
+  available_seasons?: number[];
+  current_season?: number;
 }
 
 export async function fetchPlayers(search?: string): Promise<PlayerDB[]> {
@@ -40,8 +40,9 @@ export async function fetchPlayers(search?: string): Promise<PlayerDB[]> {
   return res.data.players;
 }
 
-export async function fetchPlayerById(playerId: string): Promise<PlayerDB> {
-  const res = await api.get<PlayerDB>(`/api/players/${playerId}`);
+export async function fetchPlayerById(playerId: string, season?: number): Promise<PlayerDB> {
+  const params = season ? { season } : {};
+  const res = await api.get<PlayerDB>(`/api/players/${playerId}`, { params });
   return res.data;
 }
 
