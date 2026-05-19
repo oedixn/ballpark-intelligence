@@ -220,11 +220,23 @@ export default function PlayerPage() {
           <div className="ml-auto flex gap-8">
             {player.stats.slice(0, 3).map((s) => (
               <div key={s.label} className="text-center">
-                <p className="text-orange-400 text-2xl font-black">{s.value}</p>
-                <p className="text-gray-400 text-xs mt-1">{s.label}</p>
-              </div>
+              <p className="text-orange-400 text-2xl font-black">{s.value}</p>
+              <p className="text-gray-400 text-xs mt-1">{s.label}</p>
+            </div>
             ))}
+            {/* 타자일 때만 wRC+ 표시 */}
+            {rawData && (rawData as any).wrc_plus !== undefined && (rawData as any).wrc_plus !== null && (
+              <div className="text-center border-l border-gray-700 pl-8">
+              <p className={`text-2xl font-black ${
+                Number((rawData as any).wrc_plus) >= 130 ? 'text-orange-400' :
+                Number((rawData as any).wrc_plus) >= 100 ? 'text-green-400' : 'text-gray-400'
+              }`}>
+                {Number((rawData as any).wrc_plus)}
+              </p>
+            <p className="text-gray-400 text-xs mt-1">wRC+</p>
           </div>
+          )}
+        </div>
         </div>
       </div>
 

@@ -34,6 +34,13 @@ PLAYER_SELECT = """
             +(pst.h-pst.double_hit-pst.triple_hit-pst.hr)*0.87
             +pst.double_hit*1.217+pst.triple_hit*1.529+pst.hr*1.74)
             /NULLIF(pst.pa,0) AS NUMERIC),3) AS woba,
+        ROUND(
+            CAST(
+                ((((pst.bb*0.69+pst.hbp*0.72+(pst.h-pst.double_hit-pst.triple_hit-pst.hr)*0.87
+                +pst.double_hit*1.217+pst.triple_hit*1.529+pst.hr*1.74)
+                /NULLIF(pst.pa,0)) - 0.273) / 1.157 + 0.123) / 0.123 * 100
+            AS NUMERIC), 0
+        ) AS wrc_plus,
         ROUND(CAST(PERCENT_RANK() OVER(PARTITION BY pst.season_year ORDER BY
             (pst.bb*0.69+pst.hbp*0.72+(pst.h-pst.double_hit-pst.triple_hit-pst.hr)*0.87
             +pst.double_hit*1.217+pst.triple_hit*1.529+pst.hr*1.74)/NULLIF(pst.pa,0)
