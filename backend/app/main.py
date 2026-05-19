@@ -277,23 +277,94 @@ def delete_record(record_id: int):
 @app.get("/api/stats/team-rank")
 def get_team_rank():
     try:
-        conn = get_conn(); cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        cur.execute("""
-            SELECT t.team_name, r.games, r.wins, r.losses, r.draws,
-                r.win_rate, r.last10, r.streak,
-                ROW_NUMBER() OVER(ORDER BY r.win_rate DESC) AS rank
-            FROM team_rank_stats r JOIN teams t ON r.team_id=t.team_id
-            WHERE r.season_year=%s ORDER BY r.win_rate DESC
-        """, (LATEST_SEASON,))
-        rows = cur.fetchall(); cur.close(); conn.close()
-        return {"teams": [dict(r) for r in rows]}
-    except Exception as e: raise HTTPException(status_code=500, detail=str(e))
+        # KBO 실시간 API 호출
+        data = urllib.parse.urlencode({
+            "leId": "1", "srId": "0", "seasonId": "2026",
+        }).encode()
+        req = urllib.request.Request(
+            "https://www.koreabaseball.com/ws/Main.asmx/GetTeamRank",
+            data=data,
+            headers={
+                "Content-Type": "application/x-www-form-urlencoded",
+                "User-Agent": "Mozilla/5.0",
+                "Referer": "https://www.koreabaseball.com/",
+            }
+        )
+        with urllib.request.urlopen(req, timeout=10) as res:
+            raw = json_lib.loads(res.read().decode("utf-8"))
+
+        teams = []
+        for row_obj in raw.get("rows", []):
+            cells = row_obj.get("row", [])
+            if len(cells) < 8: continue
+
+            def cell_text(i):
+                text = cells[i].get("Text", "") if i < len(cells) else ""
+                return re.sub(r"<[^>]+>", "", text).strip()
+
+            rank      = cell_text(0)
+            team_name = cell_text(1)
+            games     = cell_text(2)
+            wins      = cell_text(3)
+            losses    = cell_text(4)
+            draws     = cell_text(5)
+            win_rate  = cell_text(6)
+            game_gap  = cell_text(7)
+            last10    = cell_text(8)  if len(cells) > 8  else "-"
+            streak    = cell_text(9)  if len(cells) > 9  else "-"
+
+            if not rank or not team_name: continue
+
+            teams.append({
+                "rank":      int(rank) if rank.isdigit() else 0,
+                "team_name": team_name,
+                "games":     int(games)    if games.isdigit()  else 0,
+                "wins":      int(wins)     if wins.isdigit()   else 0,
+                "losses":    int(losses)   if losses.isdigit() else 0,
+                "draws":     int(draws)    if draws.isdigit()  else 0,
+                "win_rate":  float(win_rate) if win_rate else 0.0,
+                "game_gap":  game_gap,
+                "last10":    last10,
+                "streak":    streak,
+            })
+
+        if teams:
+            return {"teams": teams, "source": "realtime"}
+
+        # KBO API 실패 시 DB fallback
+        raise Exception("KBO API 응답 없음")
+
+    except Exception:
+        # DB에서 가져오기
+        try:
+            conn = get_conn()
+            cur  = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            cur.execute("""
+                SELECT t.team_name, r.games, r.wins, r.losses, r.draws,
+                    r.win_rate, r.last10, r.streak,
+                    ROW_NUMBER() OVER(ORDER BY r.win_rate DESC) AS rank
+                FROM team_rank_stats r
+                JOIN teams t ON r.team_id=t.team_id
+                WHERE r.season_year=%s ORDER BY r.win_rate DESC
+            """, (LATEST_SEASON,))
+            rows = cur.fetchall()
+            cur.close(); conn.close()
+            return {"teams": [dict(r) for r in rows], "source": "db"}
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
 
 # ── 타자 기록 ────────────────────────────────────
 @app.get("/api/stats/hitters")
 def get_hitter_stats(sort: Optional[str] = "woba", limit: int = 50):
     try:
-        conn = get_conn(); cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        conn = get_conn()
+        cur  = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+        # 규정타석 동적 계산 (팀 경기수 × 3.1)
+        cur.execute("SELECT MAX(games) FROM team_rank_stats WHERE season_year = %s", (LATEST_SEASON,))
+        max_games = cur.fetchone()['max'] or 1
+        min_pa = int(max_games * 3.1)
+
         sc = {"woba":"woba","ops":"pst.ops","hr":"pst.hr","avg":"pst.avg","rbi":"pst.rbi"}.get(sort,"woba")
         cur.execute(f"""
             SELECT p.player_id, p.player_name, t.team_name,
@@ -307,33 +378,56 @@ def get_hitter_stats(sort: Optional[str] = "woba", limit: int = 50):
             JOIN player_hitter_stats pst ON p.player_id=pst.player_id
             JOIN teams t ON pst.team_id=t.team_id
             LEFT JOIN player_defense_stats def ON p.player_id=def.player_id AND pst.season_year=def.season_year
-            WHERE pst.season_year=%s AND pst.pa>=50
-            ORDER BY {sc} DESC NULLS LAST LIMIT %s
-        """, (LATEST_SEASON, limit))
-        rows = cur.fetchall(); cur.close(); conn.close()
-        return {"hitters": [dict(r) for r in rows]}
-    except Exception as e: raise HTTPException(status_code=500, detail=str(e))
+            WHERE pst.season_year=%s AND pst.pa >= %s
+            ORDER BY {sc} DESC NULLS LAST
+            LIMIT %s
+        """, (LATEST_SEASON, min_pa, limit))
+        rows = cur.fetchall()
+        cur.close(); conn.close()
+        return {"hitters": [dict(r) for r in rows], "min_pa": min_pa}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 # ── 투수 기록 ────────────────────────────────────
 @app.get("/api/stats/pitchers")
 def get_pitcher_stats(sort: Optional[str] = "era", limit: int = 50):
     try:
-        conn = get_conn(); cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        sc = {"era":"ps.era","w":"ps.w","sv":"ps.sv","so":"ps.so","whip":"ps.whip"}.get(sort,"ps.era")
+        conn = get_conn()
+        cur  = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+        # 규정이닝 동적 계산 (팀 경기수 × 1.0)
+        cur.execute("SELECT MAX(games) FROM team_rank_stats WHERE season_year = %s", (LATEST_SEASON,))
+        max_games = cur.fetchone()['max'] or 1
+        min_innings = max_games  # 규정이닝 = 팀 경기수
+
+        sc = {"era":"era_num","w":"ps.w","sv":"ps.sv","so":"ps.so","whip":"ps.whip"}.get(sort,"era_num")
         order = "ASC" if sort in ("era","whip") else "DESC"
+
         cur.execute(f"""
             SELECT p.player_id, p.player_name, t.team_name,
                 ps.era, ps.g, ps.w, ps.l, ps.sv, ps.hld,
-                ps.ip, ps.so, ps.bb, ps.hr, ps.whip, ps.wpct
+                ps.ip, ps.so, ps.bb, ps.hr, ps.whip, ps.wpct,
+                CAST(SPLIT_PART(ps.ip::text, ' ', 1) AS NUMERIC) +
+                CASE WHEN ps.ip::text LIKE '%1/3%' THEN 0.33
+                     WHEN ps.ip::text LIKE '%2/3%' THEN 0.67
+                     ELSE 0 END AS era_num
             FROM player_pitcher_stats ps
             JOIN players p ON ps.player_id=p.player_id
             JOIN teams t ON ps.team_id=t.team_id
-            WHERE ps.season_year=%s AND ps.ip::text!='0' AND ps.ip IS NOT NULL
-            ORDER BY {sc} {order} NULLS LAST LIMIT %s
-        """, (LATEST_SEASON, limit))
-        rows = cur.fetchall(); cur.close(); conn.close()
-        return {"pitchers": [dict(r) for r in rows]}
-    except Exception as e: raise HTTPException(status_code=500, detail=str(e))
+            WHERE ps.season_year=%s
+              AND ps.ip IS NOT NULL
+              AND (CAST(SPLIT_PART(ps.ip::text, ' ', 1) AS NUMERIC) +
+                   CASE WHEN ps.ip::text LIKE '%1/3%' THEN 0.33
+                        WHEN ps.ip::text LIKE '%2/3%' THEN 0.67
+                        ELSE 0 END) >= %s
+            ORDER BY {sc} {order} NULLS LAST
+            LIMIT %s
+        """, (LATEST_SEASON, min_innings, limit))
+        rows = cur.fetchall()
+        cur.close(); conn.close()
+        return {"pitchers": [dict(r) for r in rows], "min_innings": min_innings}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 # ── 타순 최적화 ───────────────────────────────────
 @app.post("/api/lineup/optimize")
