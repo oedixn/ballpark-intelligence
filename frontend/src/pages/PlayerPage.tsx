@@ -9,6 +9,9 @@ import ErrorBox from '../components/common/ErrorBox';
 import { fetchPlayers, fetchPlayerById } from '../api/playerApi';
 import type { PlayerDB } from '../api/playerApi';
 import type { Player } from '../data/mockPlayers';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, BarChart, Bar } from 'recharts';
+import { fetchPlayerSeasons } from '../api/playerApi';
+import type { PlayerSeasons } from '../api/playerApi';
 
 function PlayerAvatar({ position }: { position: string }) {
   const positionColors: Record<string, string> = {
@@ -81,21 +84,26 @@ export default function PlayerPage() {
   const [selectedSeason, setSelectedSeason] = useState<number | null>(null);
   const [searchParams]                    = useSearchParams();
   const { playerId }                      = useParams<{ playerId: string }>();
+  const [seasons, setSeasons] = useState<PlayerSeasons | null>(null);
 
   async function loadPlayer(id: string, season?: number) {
-    setLoading(true);
-    setError(false);
-    try {
-      const data = await fetchPlayerById(id, season);
-      setRawData(data);
-      setPlayer(dbToPlayer(data));
-      setSelectedSeason(data.current_season ?? null);
-    } catch {
-      setError(true);
-    } finally {
-      setLoading(false);
-    }
+  setLoading(true);
+  setError(false);
+  try {
+    const [data, seasonData] = await Promise.all([
+      fetchPlayerById(id, season),
+      fetchPlayerSeasons(id),
+    ]);
+    setRawData(data);
+    setPlayer(dbToPlayer(data));
+    setSelectedSeason(data.current_season ?? null);
+    setSeasons(seasonData);
+  } catch {
+    setError(true);
+  } finally {
+    setLoading(false);
   }
+}
 
   useEffect(() => {
     if (!playerId) return;
@@ -239,6 +247,95 @@ export default function PlayerPage() {
         <div className="max-w-xl">
           <InsightBox name={player.name} stats={player.stats} />
         </div>
+
+        {/* 연도별 스탯 차트 */}
+        {seasons && seasons.seasons.length >= 2 && (
+          <div className="bg-gray-800 rounded-xl p-6 mt-6 max-w-3xl">
+            <p className="text-gray-400 text-xs mb-6 uppercase tracking-widest">연도별 성적 추이</p>
+
+            {seasons.type === 'hitter' ? (
+              <>
+                <div className="mb-8">
+                  <p className="text-gray-500 text-xs mb-3">wOBA / OPS</p>
+                  <ResponsiveContainer width="100%" height={200}>
+                    <LineChart data={seasons.seasons}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                      <XAxis dataKey="season_year" stroke="#9ca3af" tick={{ fontSize: 12 }} />
+                      <YAxis stroke="#9ca3af" tick={{ fontSize: 12 }} domain={[0, 1.2]} />
+                      <Tooltip contentStyle={{ backgroundColor: '#1f2937', border: '1px solid #374151', borderRadius: '8px' }} labelStyle={{ color: '#f97316' }} itemStyle={{ color: '#d1d5db' }} />
+                      <Legend wrapperStyle={{ color: '#9ca3af', fontSize: '12px' }} />
+                      <Line type="monotone" dataKey="woba" stroke="#f97316" strokeWidth={2} dot={{ fill: '#f97316', r: 4 }} name="wOBA" />
+                      <Line type="monotone" dataKey="ops"  stroke="#60a5fa" strokeWidth={2} dot={{ fill: '#60a5fa', r: 4 }} name="OPS" />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+
+                <div className="mb-8">
+                  <p className="text-gray-500 text-xs mb-3">홈런 / 타율</p>
+                  <ResponsiveContainer width="100%" height={200}>
+                    <BarChart data={seasons.seasons}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                      <XAxis dataKey="season_year" stroke="#9ca3af" tick={{ fontSize: 12 }} />
+                      <YAxis yAxisId="left" stroke="#9ca3af" tick={{ fontSize: 12 }} />
+                      <YAxis yAxisId="right" orientation="right" stroke="#9ca3af" tick={{ fontSize: 12 }} domain={[0, 0.5]} />
+                      <Tooltip contentStyle={{ backgroundColor: '#1f2937', border: '1px solid #374151', borderRadius: '8px' }} labelStyle={{ color: '#f97316' }} itemStyle={{ color: '#d1d5db' }} />
+                      <Legend wrapperStyle={{ color: '#9ca3af', fontSize: '12px' }} />
+                      <Bar yAxisId="left"  dataKey="hr"  fill="#f97316" name="홈런" radius={[4,4,0,0]} />
+                      <Bar yAxisId="right" dataKey="avg" fill="#60a5fa" name="타율" radius={[4,4,0,0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+
+                <div>
+                  <p className="text-gray-500 text-xs mb-3">BB% / K%</p>
+                  <ResponsiveContainer width="100%" height={200}>
+                    <LineChart data={seasons.seasons}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                      <XAxis dataKey="season_year" stroke="#9ca3af" tick={{ fontSize: 12 }} />
+                      <YAxis stroke="#9ca3af" tick={{ fontSize: 12 }} />
+                      <Tooltip contentStyle={{ backgroundColor: '#1f2937', border: '1px solid #374151', borderRadius: '8px' }} labelStyle={{ color: '#f97316' }} itemStyle={{ color: '#d1d5db' }} />
+                      <Legend wrapperStyle={{ color: '#9ca3af', fontSize: '12px' }} />
+                      <Line type="monotone" dataKey="bb_rate" stroke="#4ade80" strokeWidth={2} dot={{ fill: '#4ade80', r: 4 }} name="BB%" />
+                      <Line type="monotone" dataKey="k_rate"  stroke="#f87171" strokeWidth={2} dot={{ fill: '#f87171', r: 4 }} name="K%" />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="mb-8">
+                  <p className="text-gray-500 text-xs mb-3">ERA / WHIP</p>
+                  <ResponsiveContainer width="100%" height={200}>
+                    <LineChart data={seasons.seasons}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                      <XAxis dataKey="season_year" stroke="#9ca3af" tick={{ fontSize: 12 }} />
+                      <YAxis stroke="#9ca3af" tick={{ fontSize: 12 }} />
+                      <Tooltip contentStyle={{ backgroundColor: '#1f2937', border: '1px solid #374151', borderRadius: '8px' }} labelStyle={{ color: '#f97316' }} itemStyle={{ color: '#d1d5db' }} />
+                      <Legend wrapperStyle={{ color: '#9ca3af', fontSize: '12px' }} />
+                      <Line type="monotone" dataKey="era"  stroke="#f97316" strokeWidth={2} dot={{ fill: '#f97316', r: 4 }} name="ERA" />
+                      <Line type="monotone" dataKey="whip" stroke="#60a5fa" strokeWidth={2} dot={{ fill: '#60a5fa', r: 4 }} name="WHIP" />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+
+                <div>
+                  <p className="text-gray-500 text-xs mb-3">승 / 탈삼진</p>
+                  <ResponsiveContainer width="100%" height={200}>
+                    <BarChart data={seasons.seasons}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                      <XAxis dataKey="season_year" stroke="#9ca3af" tick={{ fontSize: 12 }} />
+                      <YAxis stroke="#9ca3af" tick={{ fontSize: 12 }} />
+                      <Tooltip contentStyle={{ backgroundColor: '#1f2937', border: '1px solid #374151', borderRadius: '8px' }} labelStyle={{ color: '#f97316' }} itemStyle={{ color: '#d1d5db' }} />
+                      <Legend wrapperStyle={{ color: '#9ca3af', fontSize: '12px' }} />
+                      <Bar dataKey="w"          fill="#f97316" name="승" radius={[4,4,0,0]} />
+                      <Bar dataKey="pitcher_so" fill="#60a5fa" name="탈삼진" radius={[4,4,0,0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

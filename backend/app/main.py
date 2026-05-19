@@ -516,3 +516,46 @@ def get_player_image(player_id: int):
             return Response(content=data, media_type="image/jpeg")
     except HTTPException: raise
     except Exception: raise HTTPException(status_code=404, detail="이미지 없음")
+
+    # ── 선수 연도별 스탯 조회 ─────────────────────────
+@app.get("/api/players/{player_id}/seasons")
+def get_player_seasons(player_id: int):
+    try:
+        conn = get_conn()
+        cur  = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+        # 타자 연도별
+        cur.execute("""
+            SELECT season_year,
+                pst.avg, pst.pa, pst.hr, pst.rbi, pst.obp, pst.slg, pst.ops,
+                ROUND(CAST(pst.bb AS NUMERIC)/NULLIF(pst.pa,0)*100,1) AS bb_rate,
+                ROUND(CAST(pst.so AS NUMERIC)/NULLIF(pst.pa,0)*100,1) AS k_rate,
+                ROUND(CAST((pst.bb*0.69+pst.hbp*0.72+(pst.h-pst.double_hit-pst.triple_hit-pst.hr)*0.87
+                    +pst.double_hit*1.217+pst.triple_hit*1.529+pst.hr*1.74)/NULLIF(pst.pa,0) AS NUMERIC),3) AS woba
+            FROM player_hitter_stats pst
+            WHERE pst.player_id = %s::varchar AND pst.pa > 0
+            ORDER BY season_year
+        """, (player_id,))
+        hitter_rows = cur.fetchall()
+
+        # 투수 연도별
+        cur.execute("""
+            SELECT season_year, ps.era, ps.w, ps.l, ps.sv, ps.ip,
+                ps.so AS pitcher_so, ps.bb AS pitcher_bb, ps.whip, ps.g
+            FROM player_pitcher_stats ps
+            WHERE ps.player_id = %s::varchar
+            ORDER BY season_year
+        """, (player_id,))
+        pitcher_rows = cur.fetchall()
+
+        cur.close(); conn.close()
+
+        if hitter_rows:
+            return {"type": "hitter", "seasons": [dict(r) for r in hitter_rows]}
+        elif pitcher_rows:
+            return {"type": "pitcher", "seasons": [dict(r) for r in pitcher_rows]}
+        else:
+            raise HTTPException(status_code=404, detail="데이터 없음")
+
+    except HTTPException: raise
+    except Exception as e: raise HTTPException(status_code=500, detail=str(e))

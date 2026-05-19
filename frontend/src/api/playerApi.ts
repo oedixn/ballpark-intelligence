@@ -75,3 +75,36 @@ export async function optimizeLineup(lineup: {
   });
   return res.data;
 }
+
+export interface PlayerSeason {
+  season_year: number;
+  // 타자
+  avg?: number;
+  pa?: number;
+  hr?: number;
+  rbi?: number;
+  obp?: number;
+  slg?: number;
+  ops?: number;
+  bb_rate?: number;
+  k_rate?: number;
+  woba?: number;
+  // 투수
+  era?: number;
+  w?: number;
+  l?: number;
+  sv?: number;
+  ip?: string;
+  pitcher_so?: number;
+  whip?: number;
+}
+
+export interface PlayerSeasons {
+  type: 'hitter' | 'pitcher';
+  seasons: PlayerSeason[];
+}
+
+export async function fetchPlayerSeasons(playerId: string): Promise<PlayerSeasons> {
+  const res = await api.get<PlayerSeasons>(`/api/players/${playerId}/seasons`);
+  return res.data;
+}
