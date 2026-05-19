@@ -37,11 +37,11 @@ from psycopg2 import sql
 # ============================================================
 
 DB_CONFIG = {
-    "host": "localhost",
-    "port": 5432,
-    "dbname": "ballpark",        # 본인 DB명으로 수정
-    "user": "ballpark",     # 본인 계정으로 수정
-    "password": "ballpark1234",     # 본인 비밀번호로 수정
+    "host":     os.environ.get("DB_HOST", "localhost"),
+    "port":     int(os.environ.get("DB_PORT", 5432)),
+    "dbname":   os.environ.get("DB_NAME", "ballpark"),
+    "user":     os.environ.get("DB_USER", "ballpark"),
+    "password": os.environ.get("DB_PASSWORD", "ballpark1234"),
 }
 
 # 크롤링 결과 CSV 폴더
