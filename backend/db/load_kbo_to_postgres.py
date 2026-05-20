@@ -79,10 +79,12 @@ CSV_ALIASES = {
     ],
 }
 
+# DB에는 현재 대표 팀명 기준으로 저장합니다.
+# 과거 팀명/사이트별 표기명은 아래 별칭 맵에서 현재 대표 팀명으로 정규화합니다.
 TEAM_CODE_BY_NAME = {
     "LG": "LG",
     "한화": "HH",
-    "SSG": "SK",
+    "SSG": "SK",   # KBO 공식 사이트에서는 SSG가 SK 코드로 조회됩니다.
     "삼성": "SS",
     "NC": "NC",
     "KT": "KT",
@@ -92,7 +94,50 @@ TEAM_CODE_BY_NAME = {
     "키움": "WO",
 }
 
+TEAM_NAME_ALIASES = {
+    # 현재 팀명
+    "LG": "LG",
+    "한화": "한화",
+    "SSG": "SSG",
+    "삼성": "삼성",
+    "NC": "NC",
+    "KT": "KT",
+    "롯데": "롯데",
+    "KIA": "KIA",
+    "두산": "두산",
+    "키움": "키움",
+
+    # 과거/다른 표기명
+    "MBC": "LG",
+    "빙그레": "한화",
+    "SK": "SSG",
+    "해태": "KIA",
+    "OB": "두산",
+    "넥센": "키움",
+    "우리": "키움",
+    "서울": "키움",
+    "히어로즈": "키움",
+    "Hero": "키움",
+    "Heroes": "키움",
+}
+
 VALID_TEAM_NAMES = set(TEAM_CODE_BY_NAME.keys())
+
+
+def normalize_team_name(team_name: object) -> Optional[str]:
+    """CSV에 들어온 팀명을 DB의 대표 팀명으로 정규화합니다."""
+    normalized = normalize_value(team_name)
+    if normalized is None:
+        return None
+    return TEAM_NAME_ALIASES.get(normalized, normalized)
+
+
+def get_team_code(team_name: object) -> Optional[str]:
+    """대표 팀명 기준으로 KBO 팀 코드를 반환합니다."""
+    normalized = normalize_team_name(team_name)
+    if normalized is None:
+        return None
+    return TEAM_CODE_BY_NAME.get(normalized)
 
 # 테이블별 중복 기준. 실제 DB의 UNIQUE 제약과 같아야 합니다.
 CONFLICT_TARGETS = {
@@ -214,15 +259,41 @@ def table_exists(cur, table_name: str) -> bool:
 
 
 def fetch_team_map(cur) -> Dict[str, int]:
+    """
+    teams 테이블의 대표 팀명뿐 아니라 과거 팀명 별칭까지 team_id로 매핑합니다.
+    예: SK -> SSG의 team_id, 넥센 -> 키움의 team_id
+    """
     cur.execute("SELECT team_id, team_name FROM teams")
-    return {team_name: team_id for team_id, team_name in cur.fetchall()}
+    rows = cur.fetchall()
+
+    team_map: Dict[str, int] = {}
+
+    # DB에 저장된 대표 팀명 매핑
+    for team_id, team_name in rows:
+        normalized_name = normalize_team_name(team_name)
+        if normalized_name:
+            team_map[normalized_name] = team_id
+        if team_name:
+            team_map[str(team_name).strip()] = team_id
+
+    # 별칭 매핑 확장
+    for alias, canonical_name in TEAM_NAME_ALIASES.items():
+        canonical_id = team_map.get(canonical_name)
+        if canonical_id is not None:
+            team_map[alias] = canonical_id
+
+    return team_map
 
 
 def add_team_id(row: Dict[str, object], team_map: Dict[str, int]) -> Dict[str, object]:
-    """team_name이 있으면 team_id로 변환합니다."""
+    """team_name이 있으면 대표 팀명으로 정규화한 뒤 team_id로 변환합니다."""
     team_name = row.get("team_name")
-    if team_name:
-        row["team_id"] = team_map.get(str(team_name).strip())
+    normalized_team_name = normalize_team_name(team_name)
+
+    if normalized_team_name:
+        row["team_name"] = normalized_team_name
+        row["team_id"] = team_map.get(normalized_team_name)
+
     return row
 
 
@@ -235,13 +306,18 @@ def clean_row_for_table(
     """CSV row를 DB 테이블에 넣을 수 있는 형태로 변환합니다."""
     cleaned = {key: normalize_value(value) for key, value in row.items()}
 
+    # 팀명이 있는 모든 CSV row는 먼저 대표 팀명으로 정규화합니다.
+    # 예: SK -> SSG, 넥센 -> 키움, OB -> 두산
+    if cleaned.get("team_name"):
+        cleaned["team_name"] = normalize_team_name(cleaned.get("team_name"))
+
     # 팀 테이블은 team_code가 비어 있으면 기본 매핑으로 채움
     if table_name == "teams":
         team_name = cleaned.get("team_name")
         if not team_name or team_name not in VALID_TEAM_NAMES:
             return None
         if not cleaned.get("team_code"):
-            cleaned["team_code"] = TEAM_CODE_BY_NAME.get(team_name)
+            cleaned["team_code"] = get_team_code(team_name)
 
     # KBReport 팀 데이터에 혹시 '전체'가 남아 있으면 제거
     if cleaned.get("team_name") == "전체":
@@ -382,3 +458,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
