@@ -566,3 +566,51 @@ def get_player_seasons(player_id: int):
 
     except HTTPException: raise
     except Exception as e: raise HTTPException(status_code=500, detail=str(e))
+
+    # ── 머니볼 엔진 ───────────────────────────────────
+@app.get("/api/players/{player_id}/moneyball")
+def get_moneyball(player_id: int):
+    try:
+        from app.ml.moneyball import get_player_moneyball
+        result = get_player_moneyball(player_id)
+        if not result:
+            raise HTTPException(status_code=404, detail="타자 데이터 없음")
+        # Decimal → float 변환
+        for k, v in result['features'].items():
+            result['features'][k] = float(v) if v is not None else None
+        return result
+    except HTTPException: raise
+    except Exception as e: raise HTTPException(status_code=500, detail=str(e))
+    
+    # ── 머니볼 리그 전체 분포 ─────────────────────────
+@app.get("/api/moneyball/distribution")
+def get_moneyball_distribution():
+    try:
+        from app.ml.moneyball import get_hitter_features, train_kmeans
+        all_data = get_hitter_features(LATEST_SEASON)
+        if not all_data:
+            raise HTTPException(status_code=404, detail="데이터 없음")
+
+        _, _, labels, type_map, _ = train_kmeans(all_data)
+
+        # 유형별 선수 수 집계
+        distribution: dict = {}
+        for i, label in enumerate(labels):
+            type_name = type_map.get(int(label), "기타")
+            if type_name not in distribution:
+                distribution[type_name] = 0
+            distribution[type_name] += 1
+
+        total = len(labels)
+        result = [
+            {
+                "type": k,
+                "count": v,
+                "pct": round(v / total * 100, 1)
+            }
+            for k, v in distribution.items()
+        ]
+        result.sort(key=lambda x: x["count"], reverse=True)
+        return {"distribution": result, "total": total}
+    except HTTPException: raise
+    except Exception as e: raise HTTPException(status_code=500, detail=str(e))

@@ -9,7 +9,9 @@ import ErrorBox from '../components/common/ErrorBox';
 import { fetchPlayers, fetchPlayerById, fetchPlayerSeasons } from '../api/playerApi';
 import type { PlayerDB, PlayerSeasons } from '../api/playerApi';
 import type { Player } from '../data/mockPlayers';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, BarChart, Bar } from 'recharts';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, BarChart, Bar, PieChart, Pie, Cell } from 'recharts';
+
+const MB_COLORS = ['#f97316','#60a5fa','#4ade80','#f87171','#a78bfa'];
 
 function PlayerAvatar({ position }: { position: string }) {
   const positionColors: Record<string, string> = {
@@ -33,11 +35,11 @@ function dbToPlayer(p: PlayerDB): Player {
     team: p.team_name,
     position: p.position ?? (isPitcher ? '투수' : '-'),
     stats: isPitcher ? [
-      { label: 'ERA',    value: Number((p as any).era  ?? 0), percentile: Number((p as any).era_percentile  ?? 0), unit: 'ERA'  },
-      { label: '승',     value: Number((p as any).w    ?? 0), percentile: Number((p as any).w_percentile    ?? 0), unit: '승'   },
-      { label: '세이브',  value: Number((p as any).sv  ?? 0), percentile: Number((p as any).sv_percentile   ?? 0), unit: '세'   },
-      { label: '탈삼진',  value: Number((p as any).pitcher_so ?? 0), percentile: Number((p as any).so_percentile ?? 0), unit: 'K' },
-      { label: 'WHIP',   value: Number((p as any).whip ?? 0), percentile: Number((p as any).whip_percentile ?? 0), unit: 'WHIP' },
+      { label: 'ERA',   value: Number((p as any).era  ?? 0), percentile: Number((p as any).era_percentile  ?? 0), unit: 'ERA'  },
+      { label: '승',    value: Number((p as any).w    ?? 0), percentile: Number((p as any).w_percentile    ?? 0), unit: '승'   },
+      { label: '세이브', value: Number((p as any).sv  ?? 0), percentile: Number((p as any).sv_percentile   ?? 0), unit: '세'   },
+      { label: '탈삼진', value: Number((p as any).pitcher_so ?? 0), percentile: Number((p as any).so_percentile ?? 0), unit: 'K' },
+      { label: 'WHIP',  value: Number((p as any).whip ?? 0), percentile: Number((p as any).whip_percentile ?? 0), unit: 'WHIP' },
     ] : [
       { label: 'wOBA', value: Number(p.woba    ?? 0), percentile: Number((p as any).woba_percentile ?? 0), unit: 'wOBA' },
       { label: 'OPS',  value: Number(p.ops     ?? 0), percentile: Number((p as any).ops_percentile  ?? 0), unit: 'OPS'  },
@@ -74,6 +76,8 @@ export default function PlayerPage() {
   const [showList, setShowList]             = useState(true);
   const [selectedSeason, setSelectedSeason] = useState<number | null>(null);
   const [seasons, setSeasons]               = useState<PlayerSeasons | null>(null);
+  const [moneyball, setMoneyball]           = useState<any>(null);
+  const [mbDist, setMbDist]                 = useState<any[]>([]);
   const [searchParams]                      = useSearchParams();
   const { playerId }                        = useParams<{ playerId: string }>();
 
@@ -89,6 +93,21 @@ export default function PlayerPage() {
       setPlayer(dbToPlayer(data));
       setSelectedSeason(data.current_season ?? null);
       setSeasons(seasonData);
+
+      const isHitter = (data as any).avg !== null && (data as any).avg !== undefined;
+      if (isHitter) {
+        try {
+          const [mb, dist] = await Promise.all([
+            fetch(`http://localhost:8000/api/players/${id}/moneyball`),
+            fetch(`http://localhost:8000/api/moneyball/distribution`),
+          ]);
+          if (mb.ok) setMoneyball(await mb.json());
+          if (dist.ok) { const d = await dist.json(); setMbDist(d.distribution); }
+        } catch { setMoneyball(null); setMbDist([]); }
+      } else {
+        setMoneyball(null);
+        setMbDist([]);
+      }
     } catch {
       setError(true);
     } finally {
@@ -134,6 +153,7 @@ export default function PlayerPage() {
   function handleBack() {
     setPlayer(null); setShowList(true);
     setRawData(null); setSelectedSeason(null);
+    setMoneyball(null); setMbDist([]);
   }
 
   const availableSeasons = rawData?.available_seasons ?? [];
@@ -272,6 +292,88 @@ export default function PlayerPage() {
         <div className="max-w-xl">
           <InsightBox name={player.name} stats={player.stats} />
         </div>
+
+        {/* 머니볼 엔진 카드 */}
+        {moneyball && (
+          <div className="bg-gradient-to-br from-gray-800 to-gray-900 border border-orange-500/20 rounded-xl p-6 mt-6 max-w-xl">
+            <p className="text-orange-400 text-xs mb-4 uppercase tracking-widest font-bold">⚾ 머니볼 엔진 분석</p>
+            <div className="grid grid-cols-3 gap-3 mb-5">
+              <div className="bg-gray-900 rounded-lg p-3 text-center">
+                <p className="text-gray-500 text-xs mb-1">선수 유형</p>
+                <p className="text-white text-sm font-black">{moneyball.cluster_type}</p>
+              </div>
+              <div className="bg-gray-900 rounded-lg p-3 text-center">
+                <p className="text-gray-500 text-xs mb-1">UV Score</p>
+                <p className={`text-sm font-black ${
+                  moneyball.uv_score >= 20  ? 'text-green-400' :
+                  moneyball.uv_score >= 5   ? 'text-blue-400'  :
+                  moneyball.uv_score >= -5  ? 'text-gray-300'  :
+                  moneyball.uv_score >= -20 ? 'text-yellow-400': 'text-red-400'
+                }`}>
+                  {moneyball.uv_score > 0 ? '+' : ''}{moneyball.uv_score}
+                </p>
+              </div>
+              <div className="bg-gray-900 rounded-lg p-3 text-center">
+                <p className="text-gray-500 text-xs mb-1">평가</p>
+                <p className={`text-sm font-black ${
+                  moneyball.uv_label === '매우 저평가' ? 'text-green-400' :
+                  moneyball.uv_label === '저평가'     ? 'text-blue-400'  :
+                  moneyball.uv_label === '적정 평가'  ? 'text-gray-300'  :
+                  moneyball.uv_label === '고평가'     ? 'text-yellow-400': 'text-red-400'
+                }`}>
+                  {moneyball.uv_label}
+                </p>
+              </div>
+            </div>
+            <p className="text-gray-400 text-xs mb-3 leading-relaxed">{moneyball.cluster_desc}</p>
+            <p className="text-gray-500 text-xs mb-5 leading-relaxed">
+              wOBA 백분위 <span className="text-orange-400 font-bold">{moneyball.woba_pct}%</span> — PA 백분위 <span className="text-blue-400 font-bold">{moneyball.pa_pct}%</span> = UV Score <span className="font-bold text-white">{moneyball.uv_score}</span>
+            </p>
+
+            {/* 리그 유형 분포 도넛 차트 */}
+            {mbDist.length > 0 && (
+              <div className="mb-5">
+                <p className="text-gray-500 text-xs mb-3">리그 전체 유형 분포</p>
+                <div className="flex items-center gap-4">
+                  <PieChart width={120} height={120}>
+                    <Pie data={mbDist} cx={55} cy={55} innerRadius={35} outerRadius={55} dataKey="count" nameKey="type">
+                      {mbDist.map((entry, index) => (
+                        <Cell
+                          key={entry.type}
+                          fill={MB_COLORS[index % MB_COLORS.length]}
+                          opacity={entry.type === moneyball.cluster_type ? 1 : 0.4}
+                          stroke={entry.type === moneyball.cluster_type ? '#fff' : 'none'}
+                          strokeWidth={entry.type === moneyball.cluster_type ? 2 : 0}
+                        />
+                      ))}
+                    </Pie>
+                  </PieChart>
+                  <div className="flex flex-col gap-1.5">
+                    {mbDist.map((entry, index) => (
+                      <div key={entry.type} className={`flex items-center gap-2 text-xs ${entry.type === moneyball.cluster_type ? 'text-white font-bold' : 'text-gray-500'}`}>
+                        <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: MB_COLORS[index % MB_COLORS.length], opacity: entry.type === moneyball.cluster_type ? 1 : 0.4 }} />
+                        {entry.type} {entry.pct}%
+                        {entry.type === moneyball.cluster_type && <span className="text-orange-400">← 현재</span>}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* 같은 유형 선수 */}
+            {moneyball.same_cluster_players?.length > 0 && (
+              <div>
+                <p className="text-gray-500 text-xs mb-2">같은 유형 선수</p>
+                <div className="flex gap-2 flex-wrap">
+                  {moneyball.same_cluster_players.map((name: string) => (
+                    <span key={name} className="bg-gray-700 text-gray-300 text-xs px-2 py-1 rounded-lg">{name}</span>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* 연도별 스탯 차트 */}
         {seasons && seasons.seasons.length >= 2 && (
