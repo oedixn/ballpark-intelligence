@@ -2,13 +2,13 @@
 kbo_db_crawler.py
 
 목적:
-- KBO 공식 사이트 + KBReport 데이터를 크롤링
+- KBO 공식 사이트 데이터만 크롤링
 - DB 적재용 CSV로 저장
-- KBO 공식 사이트 데이터를 기본 기준으로 사용
-- KBReport는 고급 지표 보완용 CSV로 저장
+- 생성된 CSV를 PostgreSQL DB에 UPSERT
+- Selenium/Chrome 없이 requests + BeautifulSoup 방식으로 동작
 
 설치:
-pip install requests beautifulsoup4 lxml pandas selenium webdriver-manager
+pip install requests beautifulsoup4 lxml pandas psycopg2-binary python-dotenv
 
 실행:
 python kbo_db_crawler.py
@@ -21,21 +21,14 @@ import csv
 import os
 import re
 import time
-from io import StringIO
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
-from urllib.parse import urlencode
+from typing import Dict, List, Optional
 
 import pandas as pd
 import requests
 from requests.exceptions import RequestException
 from bs4 import BeautifulSoup
 
-from selenium import webdriver
-from selenium.common.exceptions import NoAlertPresentException, UnexpectedAlertPresentException
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.chrome.service import Service
-from webdriver_manager.chrome import ChromeDriverManager
 
 try:
     import psycopg2
@@ -54,11 +47,13 @@ except ImportError:
 # 공통 설정
 # ============================================================
 
-OUTPUT_DIR = Path("output_db_ready")
+# 크롤러 파일 위치를 기준으로 output 폴더를 생성합니다.
+# Docker에서 /app을 기준으로 실행해도 backend/db/output_db_ready에 저장됩니다.
+OUTPUT_DIR = Path(__file__).resolve().parent / "output_db_ready"
 OUTPUT_DIR.mkdir(exist_ok=True)
 
-START_YEAR = 2026
-END_YEAR = 2026
+START_YEAR = int(os.getenv("START_YEAR", "2026"))
+END_YEAR = int(os.getenv("END_YEAR", "2026"))
 
 SERIES_REGULAR = "0"
 
@@ -80,22 +75,51 @@ TEAM_CODES = {
     "키움": "WO",
 }
 
+# DB에는 현재 기준의 대표 팀명(canonical team_name)을 저장합니다.
+# 과거 팀명/사이트 표기 차이는 이 매핑을 거쳐 같은 team_id로 연결합니다.
+# 예: 2020년 SK 기록도 DB에서는 SSG 구단의 team_id로 저장됩니다.
 TEAM_NAME_MAP = {
-    "Hero": "키움",
-    "키움": "키움",
-    "KT": "KT",
-    "NC": "NC",
-    "삼성": "삼성",
-    "두산": "두산",
+    # 현재 구단명
     "LG": "LG",
-    "SSG": "SSG",
-    "SK": "SSG",
-    "롯데": "롯데",
     "한화": "한화",
+    "SSG": "SSG",
+    "삼성": "삼성",
+    "NC": "NC",
+    "KT": "KT",
+    "롯데": "롯데",
     "KIA": "KIA",
+    "두산": "두산",
+    "키움": "키움",
+
+    # 과거/영문/약칭 표기
+    "MBC": "LG",
+    "빙그레": "한화",
+    "SK": "SSG",
+    "해태": "KIA",
+    "OB": "두산",
+    "Hero": "키움",
+    "Heroes": "키움",
+    "히어로즈": "키움",
+    "서울": "키움",
+    "우리": "키움",
+    "넥센": "키움",
 }
 
-VALID_TEAM_NAMES = {"LG", "한화", "SSG", "삼성", "NC", "KT", "롯데", "KIA", "두산", "키움"}
+
+# team_code가 넘어오는 경우에도 대표 팀명으로 바꾸기 위한 보조 매핑입니다.
+# KBO 공식 사이트에서 SSG의 team code가 여전히 SK로 쓰일 수 있어 별도 처리합니다.
+TEAM_CODE_TO_CANONICAL_NAME = {
+    "LG": "LG",
+    "HH": "한화",
+    "SK": "SSG",
+    "SS": "삼성",
+    "NC": "NC",
+    "KT": "KT",
+    "LT": "롯데",
+    "HT": "KIA",
+    "OB": "두산",
+    "WO": "키움",
+}
 
 
 # ============================================================
@@ -163,24 +187,6 @@ CSV_TABLE_CONFIG = {
         "table": "team_rank_stats",
         "conflict_cols": ["season_year", "team_id"],
     },
-
-    # KBReport 기록 테이블도 team_id 기반으로 적재합니다.
-    "kbreport_player_hitter_advanced.csv": {
-        "table": "kbreport_player_hitter_advanced",
-        "conflict_cols": ["season_year", "player_name", "team_id"],
-    },
-    "kbreport_player_pitcher_advanced.csv": {
-        "table": "kbreport_player_pitcher_advanced",
-        "conflict_cols": ["season_year", "player_name", "team_id"],
-    },
-    "kbreport_team_hitter_advanced.csv": {
-        "table": "kbreport_team_hitter_advanced",
-        "conflict_cols": ["season_year", "team_id"],
-    },
-    "kbreport_team_pitcher_advanced.csv": {
-        "table": "kbreport_team_pitcher_advanced",
-        "conflict_cols": ["season_year", "team_id"],
-    },
 }
 
 # CSV 컬럼명과 DB 스키마 컬럼명이 다른 경우 UPSERT 직전에 변환합니다.
@@ -193,15 +199,7 @@ DB_COLUMN_ALIASES = {
         "go_count": "go",
         "ao_count": "ao",
     },
-    "kbreport_player_pitcher_advanced": {
-        "lob_rate": "lob",
-        "avg_against": "avg",
-        "obp_against": "obp",
-        "slg_against": "slg",
-        "ops_against": "ops",
-    },
 }
-
 
 
 # ============================================================
@@ -225,10 +223,28 @@ def clean_player_name(value):
 
 
 def clean_team_name(value):
+    """크롤링된 팀명을 DB 기준 대표 팀명으로 정규화합니다."""
     value = clean_text(value)
     if value is None:
         return None
     return TEAM_NAME_MAP.get(value, value)
+
+
+def canonical_team_name_from_row(row: dict) -> Optional[str]:
+    """
+    row에 team_name과 team_code가 모두 있을 때 대표 팀명을 안정적으로 결정합니다.
+    team_name이 과거 표기여도 clean_team_name으로 현재 대표 팀명으로 변환하고,
+    team_name이 비어 있으면 team_code를 사용합니다.
+    """
+    team_name = clean_team_name(row.get("team_name"))
+    if team_name:
+        return team_name
+
+    team_code = clean_text(row.get("team_code"))
+    if team_code:
+        return TEAM_CODE_TO_CANONICAL_NAME.get(team_code, team_code)
+
+    return None
 
 
 def to_int(value):
@@ -284,7 +300,6 @@ def save_csv(rows: List[dict], filename: str, columns: Optional[List[str]] = Non
         writer.writerows(rows)
 
     print(f"[SAVE] {path} rows={len(rows)}")
-
 
 
 # ============================================================
@@ -439,17 +454,32 @@ def normalize_dataframe_for_schema(conn, df: pd.DataFrame, table_name: str) -> p
     insertable_columns = [c for c in db_columns if c != "id"]
 
     # DB 스키마는 대부분 team_name 대신 team_id를 사용합니다.
+    # 연도별 팀명 변경(SK→SSG, 넥센→키움 등)은 여기서 대표 팀명으로 정규화한 뒤 team_id로 변환합니다.
     if "team_id" in insertable_columns and "team_id" not in df.columns:
-        if "team_name" not in df.columns:
-            raise ValueError(f"{table_name}: team_id 변환에 필요한 team_name 컬럼이 없습니다.")
+        if "team_name" not in df.columns and "team_code" not in df.columns:
+            raise ValueError(f"{table_name}: team_id 변환에 필요한 team_name 또는 team_code 컬럼이 없습니다.")
 
         team_id_map = get_team_id_map(conn)
-        df["team_name"] = df["team_name"].apply(clean_team_name)
+
+        if "team_name" in df.columns:
+            df["team_name"] = df["team_name"].apply(clean_team_name)
+        else:
+            df["team_name"] = None
+
+        if "team_code" in df.columns:
+            df["team_name"] = df.apply(
+                lambda r: r["team_name"] or TEAM_CODE_TO_CANONICAL_NAME.get(clean_text(r.get("team_code")), clean_text(r.get("team_code"))),
+                axis=1,
+            )
+
         df["team_id"] = df["team_name"].map(team_id_map)
 
         missing_teams = sorted({name for name, team_id in zip(df["team_name"], df["team_id"]) if name and pd.isna(team_id)})
         if missing_teams:
-            raise ValueError(f"{table_name}: teams 테이블에 없는 팀명: {missing_teams}")
+            raise ValueError(
+                f"{table_name}: teams 테이블에 없는 팀명: {missing_teams}. "
+                "TEAM_NAME_MAP 또는 teams.csv 생성 로직을 확인하세요."
+            )
 
     # DB에 존재하는 컬럼만 남깁니다.
     keep_columns = [c for c in insertable_columns if c in df.columns]
@@ -1149,323 +1179,6 @@ def crawl_team_table_with_fallback(crawler, url, season, record_type, keyword_ca
 
 
 # ============================================================
-# KBReport 크롤러
-# ============================================================
-
-class KBReportCrawler:
-    BASE_URL = "http://www.kbreport.sbs"
-
-    def __init__(self):
-        self.driver = self._create_driver()
-
-    def _create_driver(self):
-        options = Options()
-        options.add_argument("--headless=new")
-        options.add_argument("--disable-gpu")
-        options.add_argument("--no-sandbox")
-        options.add_argument("--window-size=1920,1080")
-        options.add_argument(
-            "user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"
-        )
-
-        return webdriver.Chrome(
-            service=Service(ChromeDriverManager().install()),
-            options=options,
-        )
-
-    def close(self):
-        if self.driver:
-            self.driver.quit()
-
-    def build_url(self, endpoint, params=None, page=None):
-        url = self.BASE_URL + endpoint
-        if params:
-            url = f"{url}?{urlencode(params)}"
-        if page is not None and page > 1:
-            url = f"{url}#/{page}"
-        return url
-
-    def clean_df(self, df):
-        df.columns = [str(c).strip() for c in df.columns]
-        return df.dropna(how="all").reset_index(drop=True)
-
-    def get_table(self, url, table_index=0, wait_sec=2):
-        try:
-            self.driver.get(url)
-            time.sleep(wait_sec)
-
-            try:
-                alert = self.driver.switch_to.alert
-                print(f"[KBReport Alert] {alert.text}")
-                alert.accept()
-                raise ValueError("KBReport alert 발생")
-            except NoAlertPresentException:
-                pass
-
-            html = self.driver.page_source
-            tables = pd.read_html(StringIO(html))
-            if not tables:
-                raise ValueError(f"No tables found: {url}")
-            return self.clean_df(tables[table_index])
-
-        except UnexpectedAlertPresentException:
-            try:
-                alert = self.driver.switch_to.alert
-                print(f"[Unexpected Alert] {alert.text}")
-                alert.accept()
-            except Exception:
-                pass
-            raise
-
-    def get_all_pages(self, endpoint, params, key_columns, max_pages=50, rows=100, wait_sec=2):
-        all_pages = []
-        seen = set()
-
-        params = params.copy()
-        params["rows"] = rows
-
-        for page in range(1, max_pages + 1):
-            url = self.build_url(endpoint, params=params, page=page)
-
-            try:
-                df = self.get_table(url, wait_sec=wait_sec)
-            except Exception as e:
-                print(f"[KBReport 중단] endpoint={endpoint}, page={page}, error={e}")
-                break
-
-            if df.empty:
-                break
-
-            new_rows = []
-            for _, row in df.iterrows():
-                key = tuple(str(row.get(col, "")).strip() for col in key_columns)
-                if key not in seen:
-                    seen.add(key)
-                    new_rows.append(row)
-
-            if not new_rows:
-                break
-
-            all_pages.append(pd.DataFrame(new_rows))
-
-        if not all_pages:
-            return pd.DataFrame()
-
-        return pd.concat(all_pages, ignore_index=True)
-
-    def get_kbreport_player_hitter(self, year, rows=500):
-        common_params = {
-            "teamId": "",
-            "defense_no": "",
-            "year_from": year,
-            "year_to": year,
-            "gameType": "",
-            "split01": "",
-            "split02_1": "",
-            "split02_2": "",
-            "tpa_count": "0",
-        }
-
-        main = self.get_all_pages(
-            "/leader/main",
-            params=common_params,
-            key_columns=["선수명", "팀명"],
-            max_pages=50,
-            rows=rows,
-        )
-
-        std = self.get_all_pages(
-            "/leader/standard",
-            params=common_params,
-            key_columns=["선수명", "팀명"],
-            max_pages=50,
-            rows=rows,
-        )
-
-        adv = self.get_all_pages(
-            "/leader/advanced",
-            params=common_params,
-            key_columns=["선수명", "팀명"],
-            max_pages=50,
-            rows=rows,
-        )
-
-        return self.merge_kbreport_tables([main, std, adv], ["선수명", "팀명"], year)
-
-    def get_kbreport_player_pitcher(self, year, rows=500):
-        common_params = {
-            "teamId": "",
-            "pitcher_type": "",
-            "year_from": year,
-            "year_to": year,
-            "gameType": "",
-            "split01": "",
-            "split02_1": "",
-            "split02_2": "",
-            "inning_count": "0",
-        }
-
-        main = self.get_all_pages(
-            "/leader/pitcher/main",
-            params=common_params,
-            key_columns=["선수명", "팀명"],
-            max_pages=50,
-            rows=rows,
-        )
-
-        std = self.get_all_pages(
-            "/leader/pitcher/standard",
-            params=common_params,
-            key_columns=["선수명", "팀명"],
-            max_pages=50,
-            rows=rows,
-        )
-
-        adv = self.get_all_pages(
-            "/leader/pitcher/advanced",
-            params=common_params,
-            key_columns=["선수명", "팀명"],
-            max_pages=50,
-            rows=rows,
-        )
-
-        return self.merge_kbreport_tables([main, std, adv], ["선수명", "팀명"], year)
-
-    def get_kbreport_team_hitter(self, year, rows=100):
-        common_params = {
-            "teamId": "",
-            "defense_no": "",
-            "year_from": year,
-            "year_to": year,
-            "split01": "",
-            "split02_1": "",
-            "split02_2": "",
-        }
-
-        main = self.get_all_pages("/teams/main", common_params, ["팀명"], max_pages=10, rows=rows)
-        std = self.get_all_pages("/teams/standard", common_params, ["팀명"], max_pages=10, rows=rows)
-        adv = self.get_all_pages("/teams/advanced", common_params, ["팀명"], max_pages=10, rows=rows)
-
-        return self.merge_kbreport_tables([main, std, adv], ["팀명"], year)
-
-    def get_kbreport_team_pitcher(self, year, rows=100):
-        common_params = {
-            "teamId": "",
-            "pitcher_type": "",
-            "year_from": year,
-            "year_to": year,
-            "split01": "",
-            "split02_1": "",
-            "split02_2": "",
-        }
-
-        main = self.get_all_pages("/teams/pitcher/main", common_params, ["팀명"], max_pages=10, rows=rows)
-        std = self.get_all_pages("/teams/pitcher/standard", common_params, ["팀명"], max_pages=10, rows=rows)
-        adv = self.get_all_pages("/teams/pitcher/advanced", common_params, ["팀명"], max_pages=10, rows=rows)
-
-        return self.merge_kbreport_tables([main, std, adv], ["팀명"], year)
-
-    def merge_kbreport_tables(self, dfs, key_columns, year):
-        merged = {}
-
-        for df in dfs:
-            if df is None or df.empty:
-                continue
-
-            for _, row in df.iterrows():
-                key = tuple(str(row.get(col, "")).strip() for col in key_columns)
-                if key not in merged:
-                    merged[key] = {}
-                merged[key].update(row.to_dict())
-
-        result = pd.DataFrame(list(merged.values()))
-        if not result.empty:
-            result["season_year"] = int(year)
-
-            if "선수명" in result.columns:
-                result["선수명"] = result["선수명"].apply(clean_player_name)
-
-            if "팀명" in result.columns:
-                result["팀명"] = result["팀명"].apply(clean_team_name)
-
-        return result
-
-
-def pick(row, *names):
-    for name in names:
-        if name in row and pd.notna(row[name]):
-            return row[name]
-    return None
-
-
-def convert_kbreport_hitter_advanced(row):
-    return {
-        "season_year": to_int(row.get("season_year")),
-        "player_name": clean_player_name(row.get("선수명")),
-        "team_name": clean_team_name(row.get("팀명")),
-        "babip": to_float(pick(row, "BABIP")),
-        "bb_rate": normalize_percent(pick(row, "볼넷%", "BB%")),
-        "k_rate": normalize_percent(pick(row, "삼진%", "K%")),
-        "bb_k": to_float(pick(row, "볼/삼")),
-        "iso": to_float(pick(row, "ISO")),
-        "ab_per_hr": to_float(pick(row, "타수/홈런")),
-        "rc": to_float(pick(row, "RC")),
-        "rc27": to_float(pick(row, "RC/27")),
-        "wrc": to_float(pick(row, "wRC")),
-        "spd": to_float(pick(row, "SPD")),
-        "wsb": to_float(pick(row, "wSB")),
-        "woba": to_float(pick(row, "wOBA")),
-        "wraa": to_float(pick(row, "wRAA")),
-        "war": to_float(pick(row, "WAR")),
-    }
-
-
-def convert_kbreport_pitcher_advanced(row):
-    return {
-        "season_year": to_int(row.get("season_year")),
-        "player_name": clean_player_name(row.get("선수명")),
-        "team_name": clean_team_name(row.get("팀명")),
-        "hr9": to_float(pick(row, "홈런/9")),
-        "lob_rate": normalize_percent(pick(row, "LOB%")),
-        "fip": to_float(pick(row, "FIP")),
-        "kfip": to_float(pick(row, "kFIP")),
-        "fip_war": to_float(pick(row, "FIP-WAR")),
-        "ra9_war": to_float(pick(row, "RA9-WAR")),
-        "k_rate": normalize_percent(pick(row, "삼진%")),
-        "bb_rate": normalize_percent(pick(row, "볼넷%")),
-        "avg_against": to_float(pick(row, "피안타율")),
-        "obp_against": to_float(pick(row, "피출루율")),
-        "slg_against": to_float(pick(row, "피장타율")),
-        "ops_against": to_float(pick(row, "피OPS")),
-    }
-
-
-def convert_kbreport_team_hitter_advanced(row):
-    out = convert_kbreport_hitter_advanced(row)
-    out.pop("player_name", None)
-    return {
-        "season_year": out["season_year"],
-        "team_name": out["team_name"],
-        "expected_win_rate": to_float(pick(row, "기대승률")),
-        "r_per_game": to_float(pick(row, "R/G")),
-        **{k: v for k, v in out.items() if k not in {"season_year", "team_name"}},
-    }
-
-
-def convert_kbreport_team_pitcher_advanced(row):
-    out = convert_kbreport_pitcher_advanced(row)
-    out.pop("player_name", None)
-    return {
-        "season_year": out["season_year"],
-        "team_name": out["team_name"],
-        "expected_win_rate": to_float(pick(row, "기대승률")),
-        "ra_per_game": to_float(pick(row, "RA/G")),
-        **{k: v for k, v in out.items() if k not in {"season_year", "team_name"}},
-    }
-
-
-# ============================================================
 # 메인 실행
 # ============================================================
 
@@ -1651,10 +1364,6 @@ def dedupe(rows: List[dict], keys: List[str]) -> List[dict]:
     return list(result.values())
 
 
-def filter_valid_team_rows(rows: List[dict]) -> List[dict]:
-    """KBReport 팀 페이지에 섞일 수 있는 '전체' 또는 리그 평균 행 제거."""
-    return [row for row in rows if row.get("team_name") in VALID_TEAM_NAMES]
-
 
 def make_master_files(*row_groups):
     team_rows = {}
@@ -1663,8 +1372,8 @@ def make_master_files(*row_groups):
 
     for rows in row_groups:
         for row in rows:
-            team_name = row.get("team_name")
-            team_code = row.get("team_code")
+            team_name = canonical_team_name_from_row(row)
+            team_code = clean_text(row.get("team_code"))
             season_year = row.get("season_year")
             player_id = row.get("player_id")
             player_name = row.get("player_name")
@@ -1693,67 +1402,12 @@ def make_master_files(*row_groups):
     save_csv(list(season_team_rows.values()), "player_season_teams.csv")
 
 
-def crawl_kbreport_all():
-    crawler = KBReportCrawler()
-
-    hitter_adv = []
-    pitcher_adv = []
-    team_hitter_adv = []
-    team_pitcher_adv = []
-
-    try:
-        for year in range(START_YEAR, END_YEAR + 1):
-            season = str(year)
-
-            print(f"[KBReport] player hitter {season}")
-            df = crawler.get_kbreport_player_hitter(season)
-            if not df.empty:
-                hitter_adv.extend([convert_kbreport_hitter_advanced(row) for _, row in df.iterrows()])
-
-            print(f"[KBReport] player pitcher {season}")
-            df = crawler.get_kbreport_player_pitcher(season)
-            if not df.empty:
-                pitcher_adv.extend([convert_kbreport_pitcher_advanced(row) for _, row in df.iterrows()])
-
-            print(f"[KBReport] team hitter {season}")
-            df = crawler.get_kbreport_team_hitter(season)
-            if not df.empty:
-                team_hitter_adv.extend([convert_kbreport_team_hitter_advanced(row) for _, row in df.iterrows()])
-
-            print(f"[KBReport] team pitcher {season}")
-            df = crawler.get_kbreport_team_pitcher(season)
-            if not df.empty:
-                team_pitcher_adv.extend([convert_kbreport_team_pitcher_advanced(row) for _, row in df.iterrows()])
-
-    finally:
-        crawler.close()
-
-    hitter_adv = dedupe(hitter_adv, ["season_year", "player_name", "team_name"])
-    pitcher_adv = dedupe(pitcher_adv, ["season_year", "player_name", "team_name"])
-
-    # KBReport 팀 기록에는 '전체' 행이 섞일 수 있으므로 DB 적재 전 제거
-    team_hitter_adv = filter_valid_team_rows(team_hitter_adv)
-    team_pitcher_adv = filter_valid_team_rows(team_pitcher_adv)
-
-    team_hitter_adv = dedupe(team_hitter_adv, ["season_year", "team_name"])
-    team_pitcher_adv = dedupe(team_pitcher_adv, ["season_year", "team_name"])
-
-    save_csv(hitter_adv, "kbreport_player_hitter_advanced.csv")
-    save_csv(pitcher_adv, "kbreport_player_pitcher_advanced.csv")
-    save_csv(team_hitter_adv, "kbreport_team_hitter_advanced.csv")
-    save_csv(team_pitcher_adv, "kbreport_team_pitcher_advanced.csv")
-
-
 if __name__ == "__main__":
     print("====================================")
-    print("KBO 공식 사이트 크롤링 시작")
+    print(f"KBO 공식 사이트 크롤링 시작: {START_YEAR}~{END_YEAR}")
     print("====================================")
     crawl_kbo_official_all()
 
-    print("====================================")
-    print("KBReport 크롤링 시작")
-    print("====================================")
-    crawl_kbreport_all()
 
     # 크롤링으로 생성된 CSV를 PostgreSQL에 UPSERT합니다.
     # 테이블은 미리 만들어져 있어야 하고, CSV 컬럼명과 DB 컬럼명이 같아야 합니다.
