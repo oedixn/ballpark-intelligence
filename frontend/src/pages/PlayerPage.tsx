@@ -82,38 +82,41 @@ export default function PlayerPage() {
   const { playerId }                        = useParams<{ playerId: string }>();
 
   async function loadPlayer(id: string, season?: number) {
-    setLoading(true);
-    setError(false);
-    try {
-      const [data, seasonData] = await Promise.all([
-        fetchPlayerById(id, season),
-        fetchPlayerSeasons(id),
-      ]);
-      setRawData(data);
-      setPlayer(dbToPlayer(data));
-      setSelectedSeason(data.current_season ?? null);
-      setSeasons(seasonData);
+  setLoading(true);
+  setError(false);
+  try {
+    const data = await fetchPlayerById(id, season);
+    setRawData(data);
+    setPlayer(dbToPlayer(data));
+    setSelectedSeason(data.current_season ?? null);
 
-      const isHitter = (data as any).avg !== null && (data as any).avg !== undefined;
-      if (isHitter) {
-        try {
-          const [mb, dist] = await Promise.all([
-            fetch(`http://localhost:8000/api/players/${id}/moneyball`),
-            fetch(`http://localhost:8000/api/moneyball/distribution`),
-          ]);
-          if (mb.ok) setMoneyball(await mb.json());
-          if (dist.ok) { const d = await dist.json(); setMbDist(d.distribution); }
-        } catch { setMoneyball(null); setMbDist([]); }
-      } else {
-        setMoneyball(null);
-        setMbDist([]);
-      }
-    } catch {
-      setError(true);
-    } finally {
-      setLoading(false);
+    // seasons는 실패해도 무시
+    try {
+      const seasonData = await fetchPlayerSeasons(id);
+      setSeasons(seasonData);
+    } catch { setSeasons(null); }
+
+    // 타자일 때만 머니볼 분석
+    const isHitter = (data as any).avg !== null && (data as any).avg !== undefined;
+    if (isHitter) {
+      try {
+        const [mb, dist] = await Promise.all([
+          fetch(`http://localhost:8000/api/players/${id}/moneyball`),
+          fetch(`http://localhost:8000/api/moneyball/distribution`),
+        ]);
+        if (mb.ok) setMoneyball(await mb.json());
+        if (dist.ok) { const d = await dist.json(); setMbDist(d.distribution); }
+      } catch { setMoneyball(null); setMbDist([]); }
+    } else {
+      setMoneyball(null);
+      setMbDist([]);
     }
+  } catch {
+    setError(true);
+  } finally {
+    setLoading(false);
   }
+}
 
   useEffect(() => {
     if (!playerId) return;

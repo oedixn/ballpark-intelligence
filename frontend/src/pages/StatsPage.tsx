@@ -31,6 +31,7 @@ interface HitterStat {
   bb_rate: number;
   k_rate: number;
   woba: number;
+  wrc_plus: number;
 }
 
 interface PitcherStat {
@@ -63,24 +64,24 @@ const HITTER_SORT_OPTIONS: { key: HitterSortKey; label: string }[] = [
 ];
 
 const PITCHER_SORT_OPTIONS: { key: PitcherSortKey; label: string }[] = [
-  { key: 'era',  label: 'ERA'  },
-  { key: 'w',    label: '승'   },
+  { key: 'era',  label: 'ERA'    },
+  { key: 'w',    label: '승'     },
   { key: 'sv',   label: '세이브' },
   { key: 'so',   label: '탈삼진' },
-  { key: 'whip', label: 'WHIP' },
+  { key: 'whip', label: 'WHIP'  },
 ];
 
 const MEDAL = ['🥇', '🥈', '🥉'];
 
 export default function StatsPage() {
   const navigate = useNavigate();
-  const [tab, setTab]               = useState<'team' | 'hitter' | 'pitcher'>('team');
-  const [teams, setTeams]           = useState<TeamRank[]>([]);
-  const [hitters, setHitters]       = useState<HitterStat[]>([]);
-  const [pitchers, setPitchers]     = useState<PitcherStat[]>([]);
-  const [hitterSort, setHitterSort] = useState<HitterSortKey>('woba');
-  const [pitcherSort, setPitcherSort] = useState<PitcherSortKey>('era');
-  const [loading, setLoading]       = useState(false);
+  const [tab, setTab]                   = useState<'team' | 'hitter' | 'pitcher'>('team');
+  const [teams, setTeams]               = useState<TeamRank[]>([]);
+  const [hitters, setHitters]           = useState<HitterStat[]>([]);
+  const [pitchers, setPitchers]         = useState<PitcherStat[]>([]);
+  const [hitterSort, setHitterSort]     = useState<HitterSortKey>('woba');
+  const [pitcherSort, setPitcherSort]   = useState<PitcherSortKey>('era');
+  const [loading, setLoading]           = useState(false);
 
   useEffect(() => {
     setLoading(true);
@@ -114,7 +115,7 @@ export default function StatsPage() {
       {/* 탭 */}
       <div className="px-10 pt-10 pb-2 flex gap-4">
         {[
-          { key: 'team',    label: '팀 순위'  },
+          { key: 'team',    label: '팀 순위'   },
           { key: 'hitter',  label: '타자 기록' },
           { key: 'pitcher', label: '투수 기록' },
         ].map(({ key, label }) => (
@@ -122,9 +123,7 @@ export default function StatsPage() {
             key={key}
             onClick={() => setTab(key as 'team' | 'hitter' | 'pitcher')}
             className={`px-6 py-2.5 rounded-xl text-sm font-bold transition-colors ${
-              tab === key
-                ? 'bg-orange-500 text-white'
-                : 'bg-gray-800 text-gray-400 hover:text-white'
+              tab === key ? 'bg-orange-500 text-white' : 'bg-gray-800 text-gray-400 hover:text-white'
             }`}
           >
             {label}
@@ -228,6 +227,7 @@ export default function StatsPage() {
                     <th className="text-center px-4 py-4">BB%</th>
                     <th className="text-center px-4 py-4">K%</th>
                     <th className="text-center px-4 py-4 text-orange-400">wOBA</th>
+                    <th className="text-center px-4 py-4 text-green-400">wRC+</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -237,7 +237,6 @@ export default function StatsPage() {
                       <td className="px-6 py-3">
                         <button
                           onClick={() => navigate(`/player/${p.player_id}`)}
-                          style={{ cursor: 'pointer' }}
                           className={`font-bold hover:text-orange-400 transition-colors text-left underline-offset-2 hover:underline ${i < 3 ? 'text-orange-400' : 'text-white'}`}
                         >
                           {i < 3 && `${MEDAL[i]} `}{p.player_name}
@@ -259,6 +258,14 @@ export default function StatsPage() {
                       <td className="text-center px-4 py-3">
                         <span className={`font-bold ${i < 3 ? 'text-orange-400' : 'text-gray-300'}`}>
                           {Number(p.woba).toFixed(3)}
+                        </span>
+                      </td>
+                      <td className="text-center px-4 py-3">
+                        <span className={`font-bold ${
+                          Number(p.wrc_plus) >= 130 ? 'text-orange-400' :
+                          Number(p.wrc_plus) >= 100 ? 'text-green-400' : 'text-gray-400'
+                        }`}>
+                          {Number(p.wrc_plus)}
                         </span>
                       </td>
                     </tr>
@@ -310,9 +317,12 @@ export default function StatsPage() {
                     <tr key={`${p.player_name}-${i}`} className="border-t border-gray-700 hover:bg-gray-700/50 transition-colors">
                       <td className="px-6 py-3 text-gray-500 text-xs">{i + 1}</td>
                       <td className="px-6 py-3">
-                        <span className={`font-bold ${i < 3 ? 'text-orange-400' : 'text-white'}`}>
+                        <button
+                          onClick={() => navigate(`/player/${p.player_id}`)}
+                          className={`font-bold hover:text-orange-400 transition-colors text-left underline-offset-2 hover:underline ${i < 3 ? 'text-orange-400' : 'text-white'}`}
+                        >
                           {i < 3 && `${MEDAL[i]} `}{p.player_name}
-                        </span>
+                        </button>
                       </td>
                       <td className="px-4 py-3 text-gray-400 text-xs">{p.team_name}</td>
                       <td className="text-center px-4 py-3 text-gray-300">{p.g}</td>

@@ -366,20 +366,25 @@ def get_hitter_stats(sort: Optional[str] = "woba", limit: int = 50):
     try:
         conn = get_conn()
         cur  = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        sc = {"woba":"woba","ops":"pst.ops","hr":"pst.hr","avg":"pst.avg","rbi":"pst.rbi"}.get(sort,"woba")
 
-        # 규정타석 동적 계산 (팀 경기수 × 3.1)
         cur.execute("SELECT MAX(games) FROM team_rank_stats WHERE season_year = %s", (LATEST_SEASON,))
         max_games = cur.fetchone()['max'] or 1
         min_pa = int(max_games * 3.1)
 
-        sc = {"woba":"woba","ops":"pst.ops","hr":"pst.hr","avg":"pst.avg","rbi":"pst.rbi"}.get(sort,"woba")
         cur.execute(f"""
-            SELECT p.player_id, p.player_name, t.team_name,
+            SELECT
+                p.player_id, p.player_name, t.team_name,
                 pst.avg, pst.pa, pst.hr, pst.rbi, pst.obp, pst.slg, pst.ops,
                 ROUND(CAST(pst.bb AS NUMERIC)/NULLIF(pst.pa,0)*100,1) AS bb_rate,
                 ROUND(CAST(pst.so AS NUMERIC)/NULLIF(pst.pa,0)*100,1) AS k_rate,
                 ROUND(CAST((pst.bb*0.69+pst.hbp*0.72+(pst.h-pst.double_hit-pst.triple_hit-pst.hr)*0.87
                     +pst.double_hit*1.217+pst.triple_hit*1.529+pst.hr*1.74)/NULLIF(pst.pa,0) AS NUMERIC),3) AS woba,
+                ROUND(CAST(
+                    ((((pst.bb*0.69+pst.hbp*0.72+(pst.h-pst.double_hit-pst.triple_hit-pst.hr)*0.87
+                    +pst.double_hit*1.217+pst.triple_hit*1.529+pst.hr*1.74)/NULLIF(pst.pa,0)) - 0.273)
+                    / 1.157 + 0.123) / 0.123 * 100
+                AS NUMERIC), 0) AS wrc_plus,
                 def.position
             FROM players p
             JOIN player_hitter_stats pst ON p.player_id=pst.player_id
@@ -394,7 +399,7 @@ def get_hitter_stats(sort: Optional[str] = "woba", limit: int = 50):
         return {"hitters": [dict(r) for r in rows], "min_pa": min_pa}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
+    
 # ── 투수 기록 ────────────────────────────────────
 @app.get("/api/stats/pitchers")
 def get_pitcher_stats(sort: Optional[str] = "era", limit: int = 50):
@@ -402,37 +407,31 @@ def get_pitcher_stats(sort: Optional[str] = "era", limit: int = 50):
         conn = get_conn()
         cur  = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
-        # 규정이닝 동적 계산 (팀 경기수 × 1.0)
         cur.execute("SELECT MAX(games) FROM team_rank_stats WHERE season_year = %s", (LATEST_SEASON,))
-        max_games = cur.fetchone()['max'] or 1
-        min_innings = max_games  # 규정이닝 = 팀 경기수
+        row = cur.fetchone()
+        max_games = row['max'] if row and row['max'] else 1
+        min_g = max(1, int(max_games * 0.3))
 
-        sc = {"era":"era_num","w":"ps.w","sv":"ps.sv","so":"ps.so","whip":"ps.whip"}.get(sort,"era_num")
+        sc = {"era":"ps.era","w":"ps.w","sv":"ps.sv","so":"ps.so","whip":"ps.whip"}.get(sort,"ps.era")
         order = "ASC" if sort in ("era","whip") else "DESC"
 
         cur.execute(f"""
-            SELECT p.player_id, p.player_name, t.team_name,
+            SELECT
+                p.player_id, p.player_name, t.team_name,
                 ps.era, ps.g, ps.w, ps.l, ps.sv, ps.hld,
-                ps.ip, ps.so, ps.bb, ps.hr, ps.whip, ps.wpct,
-                CAST(SPLIT_PART(ps.ip::text, ' ', 1) AS NUMERIC) +
-                CASE WHEN ps.ip::text LIKE '%1/3%' THEN 0.33
-                     WHEN ps.ip::text LIKE '%2/3%' THEN 0.67
-                     ELSE 0 END AS era_num
+                ps.ip, ps.so, ps.bb, ps.hr, ps.whip, ps.wpct
             FROM player_pitcher_stats ps
             JOIN players p ON ps.player_id=p.player_id
             JOIN teams t ON ps.team_id=t.team_id
             WHERE ps.season_year=%s
               AND ps.ip IS NOT NULL
-              AND (CAST(SPLIT_PART(ps.ip::text, ' ', 1) AS NUMERIC) +
-                   CASE WHEN ps.ip::text LIKE '%1/3%' THEN 0.33
-                        WHEN ps.ip::text LIKE '%2/3%' THEN 0.67
-                        ELSE 0 END) >= %s
+              AND ps.g >= %s
             ORDER BY {sc} {order} NULLS LAST
             LIMIT %s
-        """, (LATEST_SEASON, min_innings, limit))
+        """, (LATEST_SEASON, min_g, limit))
         rows = cur.fetchall()
         cur.close(); conn.close()
-        return {"pitchers": [dict(r) for r in rows], "min_innings": min_innings}
+        return {"pitchers": [dict(r) for r in rows], "min_g": min_g}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -539,6 +538,11 @@ def get_player_seasons(player_id: int):
                 ROUND(CAST(pst.so AS NUMERIC)/NULLIF(pst.pa,0)*100,1) AS k_rate,
                 ROUND(CAST((pst.bb*0.69+pst.hbp*0.72+(pst.h-pst.double_hit-pst.triple_hit-pst.hr)*0.87
                     +pst.double_hit*1.217+pst.triple_hit*1.529+pst.hr*1.74)/NULLIF(pst.pa,0) AS NUMERIC),3) AS woba
+                    ROUND(CAST(
+                    ((((pst.bb*0.69+pst.hbp*0.72+(pst.h-pst.double_hit-pst.triple_hit-pst.hr)*0.87
+                    +pst.double_hit*1.217+pst.triple_hit*1.529+pst.hr*1.74)/NULLIF(pst.pa,0)) - 0.273)
+                    / 1.157 + 0.123) / 0.123 * 100
+                AS NUMERIC), 0) AS wrc_plus,
             FROM player_hitter_stats pst
             WHERE pst.player_id = %s::varchar AND pst.pa > 0
             ORDER BY season_year
