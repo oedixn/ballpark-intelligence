@@ -1,2 +1,1 @@
 0 6 * * * cd /app && /usr/local/bin/python db/kbo_db_crawler_2026_auto_sync_schema_fixed.py >> /var/log/kbo_sync.log 2>&1
-10 6 * * * cd /app && /usr/local/bin/python db/load_kbo_to_postgres.py >> /var/log/kbo_sync.log 2>&1
