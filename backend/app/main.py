@@ -423,3 +423,19 @@ def get_moneyball_distribution():
         return {"distribution":result,"total":total}
     except HTTPException: raise
     except Exception as e: raise HTTPException(status_code=500,detail=str(e))
+
+    # ── 유사 선수 추천 ─────────────────────────────────
+@app.get("/api/players/{player_id}/similar")
+def get_similar(player_id: int):
+    try:
+        from app.ml.similar_players import get_similar_players, get_similar_pitchers
+        # 타자 먼저 시도
+        result = get_similar_players(player_id)
+        if not result:
+            # 투수 시도
+            result = get_similar_pitchers(player_id)
+        if not result:
+            raise HTTPException(status_code=404, detail="데이터 없음")
+        return result
+    except HTTPException: raise
+    except Exception as e: raise HTTPException(status_code=500, detail=str(e))
