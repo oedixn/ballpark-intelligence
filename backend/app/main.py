@@ -439,3 +439,37 @@ def get_similar(player_id: int):
         return result
     except HTTPException: raise
     except Exception as e: raise HTTPException(status_code=500, detail=str(e))
+
+    # ── LSTM 선수 성과 예측 ───────────────────────────
+_h_model, _h_sx, _h_sy = None, None, None
+_p_model, _p_sx, _p_sy = None, None, None
+
+@app.get("/api/players/{player_id}/predict")
+def get_prediction(player_id: int):
+    global _h_model, _h_sx, _h_sy, _p_model, _p_sx, _p_sy
+    try:
+        from app.ml.lstm_predictor import (
+            predict_next_season, predict_pitcher_next_season,
+            train_hitter_model, train_pitcher_model
+        )
+        # 타자 시도
+        result = None
+        try:
+            if _h_model is None:
+                _h_model, _h_sx, _h_sy = train_hitter_model()
+            result = predict_next_season(player_id, _h_model, _h_sx, _h_sy)
+        except: pass
+
+        # 투수 시도
+        if not result:
+            try:
+                if _p_model is None:
+                    _p_model, _p_sx, _p_sy = train_pitcher_model()
+                result = predict_pitcher_next_season(player_id, _p_model, _p_sx, _p_sy)
+            except: pass
+
+        if not result:
+            raise HTTPException(status_code=404, detail="예측 데이터 부족")
+        return result
+    except HTTPException: raise
+    except Exception as e: raise HTTPException(status_code=500, detail=str(e))

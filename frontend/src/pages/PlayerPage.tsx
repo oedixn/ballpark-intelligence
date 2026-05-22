@@ -15,7 +15,6 @@ const MB_COLORS = ['#f97316','#60a5fa','#4ade80','#f87171','#a78bfa'];
 const API = 'http://localhost:8000';
 const TS = { contentStyle:{backgroundColor:'#1f2937',border:'1px solid #374151',borderRadius:'8px'}, labelStyle:{color:'#f97316'}, itemStyle:{color:'#d1d5db'} };
 const LS = { color:'#9ca3af', fontSize:'12px' };
-
 const POS_COLORS: Record<string,string> = {
   '포수':'bg-blue-600','1루수':'bg-red-600','2루수':'bg-green-600','3루수':'bg-yellow-600',
   '유격수':'bg-purple-600','좌익수':'bg-pink-600','중견수':'bg-teal-600','우익수':'bg-orange-600',
@@ -36,11 +35,11 @@ function dbToPlayer(p: PlayerDB): Player {
     id: Number(p.player_id), name: p.player_name, team: p.team_name,
     position: p.position ?? (ip ? '투수' : '-'),
     stats: ip ? [
-      { label:'ERA',   value:Number((p as any).era??0),         percentile:Number((p as any).era_percentile??0),  unit:'ERA'  },
-      { label:'승',    value:Number((p as any).w??0),           percentile:Number((p as any).w_percentile??0),    unit:'승'   },
-      { label:'세이브', value:Number((p as any).sv??0),          percentile:Number((p as any).sv_percentile??0),   unit:'세'   },
-      { label:'탈삼진', value:Number((p as any).pitcher_so??0),  percentile:Number((p as any).so_percentile??0),   unit:'K'    },
-      { label:'WHIP',  value:Number((p as any).whip??0),        percentile:Number((p as any).whip_percentile??0), unit:'WHIP' },
+      { label:'ERA',   value:Number((p as any).era??0),        percentile:Number((p as any).era_percentile??0),  unit:'ERA'  },
+      { label:'승',    value:Number((p as any).w??0),          percentile:Number((p as any).w_percentile??0),    unit:'승'   },
+      { label:'세이브', value:Number((p as any).sv??0),         percentile:Number((p as any).sv_percentile??0),   unit:'세'   },
+      { label:'탈삼진', value:Number((p as any).pitcher_so??0), percentile:Number((p as any).so_percentile??0),   unit:'K'    },
+      { label:'WHIP',  value:Number((p as any).whip??0),       percentile:Number((p as any).whip_percentile??0), unit:'WHIP' },
     ] : [
       { label:'wOBA', value:Number(p.woba??0),    percentile:Number((p as any).woba_percentile??0), unit:'wOBA' },
       { label:'OPS',  value:Number(p.ops??0),     percentile:Number((p as any).ops_percentile??0),  unit:'OPS'  },
@@ -66,21 +65,24 @@ function dbToPlayer(p: PlayerDB): Player {
 
 export default function PlayerPage() {
   const navigate = useNavigate();
-  const [player, setPlayer]       = useState<Player | null>(null);
-  const [raw, setRaw]             = useState<PlayerDB | null>(null);
-  const [players, setPlayers]     = useState<Player[]>([]);
-  const [loading, setLoading]     = useState(false);
-  const [listLoading, setLL]      = useState(false);
-  const [error, setError]         = useState(false);
-  const [query, setQuery]         = useState('');
-  const [showList, setShowList]   = useState(true);
-  const [season, setSeason]       = useState<number | null>(null);
-  const [seasons, setSeasons]     = useState<PlayerSeasons | null>(null);
-  const [mb, setMb]               = useState<any>(null);
-  const [mbDist, setMbDist]       = useState<any[]>([]);
-  const [similar, setSimilar]     = useState<any[]>([]);
-  const [searchParams]            = useSearchParams();
-  const { playerId }              = useParams<{ playerId: string }>();
+  const [player, setPlayer]             = useState<Player | null>(null);
+  const [raw, setRaw]                   = useState<PlayerDB | null>(null);
+  const [players, setPlayers]           = useState<Player[]>([]);
+  const [loading, setLoading]           = useState(false);
+  const [listLoading, setLL]            = useState(false);
+  const [error, setError]               = useState(false);
+  const [query, setQuery]               = useState('');
+  const [showList, setShowList]         = useState(true);
+  const [season, setSeason]             = useState<number | null>(null);
+  const [seasons, setSeasons]           = useState<PlayerSeasons | null>(null);
+  const [mb, setMb]                     = useState<any>(null);
+  const [mbDist, setMbDist]             = useState<any[]>([]);
+  const [similar, setSimilar]           = useState<any[]>([]);
+  const [prediction, setPrediction]     = useState<any>(null);
+  const [predLoading, setPredLoading]   = useState(false);
+  const [predRequested, setPredReq]     = useState(false);
+  const [searchParams]                  = useSearchParams();
+  const { playerId }                    = useParams<{ playerId: string }>();
 
   async function loadPlayer(id: string, s?: number) {
     setLoading(true); setError(false);
@@ -89,21 +91,38 @@ export default function PlayerPage() {
       setRaw(data); setPlayer(dbToPlayer(data)); setSeason(data.current_season ?? null);
       try { setSeasons(await fetchPlayerSeasons(id)); } catch { setSeasons(null); }
       const isH = (data as any).avg !== null && (data as any).avg !== undefined;
-      try {
-        const urls = isH
-          ? [`${API}/api/players/${id}/moneyball`, `${API}/api/moneyball/distribution`, `${API}/api/players/${id}/similar`]
-          : [`${API}/api/players/${id}/similar`];
-        const res = await Promise.all(urls.map(u => fetch(u)));
-        if (isH) {
-          if (res[0].ok) setMb(await res[0].json());
-          if (res[1].ok) { const d = await res[1].json(); setMbDist(d.distribution); }
-          if (res[2].ok) { const d = await res[2].json(); setSimilar(d.similar_players); }
-        } else {
-          if (res[0].ok) { const d = await res[0].json(); setSimilar(d.similar_players); }
-        }
-      } catch { setMb(null); setMbDist([]); setSimilar([]); }
+      if (isH) {
+        try {
+          const [r0,r1,r2] = await Promise.all([
+            fetch(`${API}/api/players/${id}/moneyball`),
+            fetch(`${API}/api/moneyball/distribution`),
+            fetch(`${API}/api/players/${id}/similar`),
+          ]);
+          if (r0.ok) setMb(await r0.json());
+          if (r1.ok) { const d = await r1.json(); setMbDist(d.distribution); }
+          if (r2.ok) { const d = await r2.json(); setSimilar(d.similar_players); }
+        } catch { setMb(null); setMbDist([]); setSimilar([]); }
+        setPrediction(null); setPredReq(false);
+      } else {
+        try {
+          const r = await fetch(`${API}/api/players/${id}/similar`);
+          if (r.ok) { const d = await r.json(); setSimilar(d.similar_players); }
+        } catch { setSimilar([]); }
+        setMb(null); setMbDist([]); setPrediction(null); setPredReq(false);
+      }
     } catch { setError(true); }
     finally { setLoading(false); }
+  }
+
+  async function requestPrediction() {
+    if (!raw) return;
+    const id = playerId ?? raw.player_id;
+    setPredLoading(true); setPredReq(true);
+    try {
+      const r = await fetch(`${API}/api/players/${id}/predict`);
+      if (r.ok) setPrediction(await r.json());
+    } catch { setPrediction(null); }
+    finally { setPredLoading(false); }
   }
 
   useEffect(() => { if (!playerId) return; setShowList(false); loadPlayer(playerId); }, [playerId]);
@@ -124,7 +143,8 @@ export default function PlayerPage() {
 
   function handleBack() {
     setPlayer(null); setShowList(true); setRaw(null); setSeason(null);
-    setMb(null); setMbDist([]); setSimilar([]);
+    setMb(null); setMbDist([]); setSimilar([]); setPrediction(null);
+    setPredReq(false); setPredLoading(false);
   }
 
   const avSeasons = raw?.available_seasons ?? [];
@@ -270,7 +290,7 @@ export default function PlayerPage() {
               {similar.map((p, i) => (
                 <div key={`${p.player_id}-${i}`}
                   className="flex items-center gap-4 bg-gray-900 rounded-lg px-4 py-3 hover:bg-gray-700 transition-colors cursor-pointer"
-                  onClick={() => { setSimilar([]); setMb(null); setMbDist([]); navigate(`/player/${p.player_id}`); }}>
+                  onClick={() => { setSimilar([]); setMb(null); setMbDist([]); setPrediction(null); setPredReq(false); navigate(`/player/${p.player_id}`); }}>
                   <div className="w-8 h-8 rounded-full bg-orange-500/20 flex items-center justify-center shrink-0">
                     <span className="text-orange-400 text-xs font-black">{i+1}</span>
                   </div>
@@ -294,6 +314,68 @@ export default function PlayerPage() {
           </div>
         )}
 
+        {/* LSTM 성과 예측 */}
+{(
+  <div className="mt-6 max-w-xl">
+    {!predRequested ? (
+      <button onClick={requestPrediction}
+        className="w-full bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-500 hover:to-blue-600 text-white rounded-xl py-4 px-6 text-sm font-bold transition-all flex items-center justify-center gap-2">
+        🤖 {raw ? `${Number((raw as any).season_year ?? 2026)+1}` : '내년'} 시즌 성과 예측 (LSTM AI)
+      </button>
+    ) : predLoading ? (
+      <div className="bg-gray-800 rounded-xl p-6 text-center">
+        <p className="text-blue-400 text-sm animate-pulse">🤖 LSTM 모델로 예측 중... (최대 30초)</p>
+        <p className="text-gray-600 text-xs mt-2">9시즌 데이터를 학습하고 있어요</p>
+      </div>
+    ) : prediction ? (
+      <div className="bg-gradient-to-br from-gray-800 to-gray-900 border border-blue-500/20 rounded-xl p-6">
+        <div className="flex items-center justify-between mb-4">
+          <p className="text-blue-400 text-xs uppercase tracking-widest font-bold">🤖 AI 성과 예측</p>
+          <span className={`text-xs px-2 py-0.5 rounded font-bold ${prediction.confidence==='high'?'bg-green-500/20 text-green-400':prediction.confidence==='medium'?'bg-yellow-500/20 text-yellow-400':'bg-gray-500/20 text-gray-400'}`}>
+            {prediction.confidence==='high'?'높은':prediction.confidence==='medium'?'보통':'낮은'} 신뢰도
+          </span>
+        </div>
+        <p className="text-gray-500 text-xs mb-4">
+          {prediction.seasons_used}시즌 데이터 기반 · {prediction.method==='lstm'?'LSTM 딥러닝':'가중 평균'} 예측
+        </p>
+        <div className="grid grid-cols-3 gap-3 mb-4">
+  {(prediction.type === 'pitcher' ? [
+    { label:'ERA',  cur:prediction.recent_stats.era,      pred:prediction.predictions.era,      lower:true  },
+    { label:'WHIP', cur:prediction.recent_stats.whip,     pred:prediction.predictions.whip,     lower:true  },
+    { label:'K/G',  cur:prediction.recent_stats.so_per_g, pred:prediction.predictions.so_per_g, lower:false },
+  ] : [
+    { label:'AVG',  cur:prediction.recent_stats.avg,  pred:prediction.predictions.avg,  lower:false },
+    { label:'OPS',  cur:prediction.recent_stats.ops,  pred:prediction.predictions.ops,  lower:false },
+    { label:'wOBA', cur:prediction.recent_stats.woba, pred:prediction.predictions.woba, lower:false },
+  ]).map(({ label, cur, pred, lower }) => {
+    const diff = Number(pred) - Number(cur);
+    return (
+      <div key={label} className="bg-gray-900 rounded-lg p-3 text-center">
+        <p className="text-gray-500 text-xs mb-1">{label}</p>
+        <p className="text-white text-sm font-black">{Number(pred).toFixed(3)}</p>
+        <p className={`text-xs mt-0.5 font-bold ${
+          diff===0 ? 'text-gray-500'
+          : (lower ? diff<0 : diff>0) ? 'text-green-400' : 'text-red-400'
+        }`}>
+          {diff>0?'▲':'▼'} {Math.abs(diff).toFixed(3)}
+        </p>
+      </div>
+    );
+  })}
+</div>
+        <div className="flex items-center justify-between text-xs text-gray-600">
+          <span>{prediction.current_season} 현재 시즌</span>
+          <span className="text-blue-400 font-bold">→ {prediction.next_season} 예측</span>
+        </div>
+      </div>
+    ) : (
+      <div className="bg-gray-800 rounded-xl p-4 text-center">
+        <p className="text-gray-500 text-xs">예측 데이터를 불러오지 못했습니다</p>
+        <button onClick={() => setPredReq(false)} className="text-blue-400 text-xs mt-2 hover:underline">다시 시도</button>
+      </div>
+    )}
+  </div>
+)}
         {/* 연도별 차트 */}
         {seasons && seasons.seasons.length >= 2 && (
           <div className="bg-gray-800 rounded-xl p-6 mt-6 max-w-3xl">
