@@ -95,25 +95,18 @@ export default function HomePage() {
   const navigate = useNavigate();
   const now = new Date();
 
-  // 타이핑 애니메이션
-  const [typingIdx,  setTypingIdx]  = useState(0);
-  const [typingText, setTypingText] = useState('');
-  const [isDeleting, setIsDeleting] = useState(false);
-
-  // 경기 일정
+  const [typingIdx,    setTypingIdx]   = useState(0);
+  const [typingText,   setTypingText]  = useState('');
+  const [isDeleting,   setIsDeleting]  = useState(false);
   const [selectedDate, setSelectedDate] = useState<Date>(now);
-  const [monthCache,   setMonthCache]   = useState<Record<string, Game[]>>({});
+  const [monthCache,   setMonthCache]  = useState<Record<string, Game[]>>({});
   const [loadingGames, setLoadingGames] = useState(false);
-  const [lastUpdated,  setLastUpdated]  = useState<Date | null>(null);
-
-  // 카드 진입 애니메이션
+  const [lastUpdated,  setLastUpdated] = useState<Date | null>(null);
   const [cardsVisible, setCardsVisible] = useState(false);
 
-  // 타이핑 effect
   useEffect(() => {
     const current = TYPING_TEXTS[typingIdx];
     const speed   = isDeleting ? 60 : 100;
-
     const timer = setTimeout(() => {
       if (!isDeleting && typingText === current) {
         setTimeout(() => setIsDeleting(true), 1200);
@@ -128,17 +121,14 @@ export default function HomePage() {
         isDeleting ? prev.slice(0, -1) : current.slice(0, prev.length + 1)
       );
     }, speed);
-
     return () => clearTimeout(timer);
   }, [typingText, isDeleting, typingIdx]);
 
-  // 카드 진입 애니메이션 — 페이지 로드 후 약간 딜레이
   useEffect(() => {
     const t = setTimeout(() => setCardsVisible(true), 300);
     return () => clearTimeout(t);
   }, []);
 
-  // 경기 일정 fetch
   const getMonth   = (d: Date) => String(d.getMonth() + 1).padStart(2, '0');
   const getDay     = (d: Date) => String(d.getDate()).padStart(2, '0');
   const getDateKey = (d: Date) => `${getMonth(d)}.${getDay(d)}`;
@@ -233,7 +223,6 @@ export default function HomePage() {
               선수 프로필 보기
             </button>
           </div>
-
           <div className="grid grid-cols-4 gap-4 max-w-3xl mx-auto">
             {stats.map((s) => (
               <div key={s.label} className="bg-gray-800/60 backdrop-blur rounded-xl px-4 py-3 border border-gray-700/50">
@@ -247,7 +236,6 @@ export default function HomePage() {
       </div>
 
       <div className="px-10 py-12">
-        {/* 기능 카드 */}
         <h2 className="text-white text-2xl font-black mb-6">주요 기능</h2>
         <div className="grid grid-cols-3 gap-4 mb-12">
           {features.map((f, i) => (
@@ -317,10 +305,24 @@ export default function HomePage() {
             const aWin     = finished && scoreA > scoreB;
             const bWin     = finished && scoreB > scoreA;
             const canceled = game.status && (game.status.includes('우천') || game.status.includes('취소'));
+            const isLive   = !finished && !canceled && game.time !== '' && (() => {
+              const [h, m] = game.time.split(':').map(Number);
+              const gameMin = h * 60 + m;
+              const nowMin  = now.getHours() * 60 + now.getMinutes();
+              return isToday && nowMin >= gameMin && nowMin <= gameMin + 210;
+            })();
 
             return (
-              <div key={i} className="bg-gray-800 rounded-xl px-6 py-4 flex items-center gap-6 border border-gray-700/50 hover:border-gray-600 transition-colors">
-                <span className="text-orange-400 font-bold text-sm w-14 shrink-0">{game.time}</span>
+              <div key={i} className={`bg-gray-800 rounded-xl px-6 py-4 flex items-center gap-6 border transition-colors ${isLive ? 'border-red-500/50 hover:border-red-400' : 'border-gray-700/50 hover:border-gray-600'}`}>
+                <div className="flex flex-col items-center w-14 shrink-0 gap-0.5">
+                  <span className="text-orange-400 font-bold text-sm">{game.time}</span>
+                  {isLive && (
+                    <span className="flex items-center gap-1 text-red-400 text-xs font-black">
+                      <span className="w-1.5 h-1.5 rounded-full bg-red-400 animate-pulse inline-block"/>
+                      LIVE
+                    </span>
+                  )}
+                </div>
                 <div className="flex items-center gap-3 flex-1">
                   <span className={`font-semibold ${aWin ? 'text-white' : 'text-gray-400'}`}>{game.team_a}</span>
                   {finished && !canceled ? (
