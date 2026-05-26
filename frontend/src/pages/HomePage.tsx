@@ -83,10 +83,10 @@ const features = [
 ];
 
 const stats = [
-  { label: '시즌 데이터', value: '9개',     sub: '2018 ~ 2026' },
-  { label: '등록 선수',   value: '800+',    sub: 'KBO 전체' },
+  { label: '시즌 데이터', value: '9개',      sub: '2018 ~ 2026' },
+  { label: '등록 선수',   value: '800+',     sub: 'KBO 전체' },
   { label: '시뮬레이션',  value: '10,000회', sub: '몬테카를로' },
-  { label: '알고리즘',    value: '3종',     sub: 'Markov · ML · LSTM' },
+  { label: '알고리즘',    value: '3종',      sub: 'Markov · ML · LSTM' },
 ];
 
 const TYPING_TEXTS = ['경기 예측', '선수 분석', '시뮬레이션'];
@@ -105,6 +105,9 @@ export default function HomePage() {
   const [monthCache,   setMonthCache]   = useState<Record<string, Game[]>>({});
   const [loadingGames, setLoadingGames] = useState(false);
   const [lastUpdated,  setLastUpdated]  = useState<Date | null>(null);
+
+  // 카드 진입 애니메이션
+  const [cardsVisible, setCardsVisible] = useState(false);
 
   // 타이핑 effect
   useEffect(() => {
@@ -128,6 +131,12 @@ export default function HomePage() {
 
     return () => clearTimeout(timer);
   }, [typingText, isDeleting, typingIdx]);
+
+  // 카드 진입 애니메이션 — 페이지 로드 후 약간 딜레이
+  useEffect(() => {
+    const t = setTimeout(() => setCardsVisible(true), 300);
+    return () => clearTimeout(t);
+  }, []);
 
   // 경기 일정 fetch
   const getMonth   = (d: Date) => String(d.getMonth() + 1).padStart(2, '0');
@@ -171,10 +180,15 @@ export default function HomePage() {
 
   return (
     <div className="min-h-screen bg-gray-900">
+      <style>{`
+        @keyframes fadeSlideUp {
+          from { opacity: 0; transform: translateY(24px); }
+          to   { opacity: 1; transform: translateY(0); }
+        }
+      `}</style>
 
       {/* 히어로 */}
       <div className="relative overflow-hidden bg-gradient-to-br from-gray-800 via-gray-900 to-gray-950 border-b border-gray-700">
-        {/* 배경 야구장 다이아몬드 패턴 */}
         <svg className="absolute inset-0 w-full h-full opacity-5" viewBox="0 0 800 400" preserveAspectRatio="xMidYMid slice">
           <polygon points="400,50 550,200 400,350 250,200" fill="none" stroke="white" strokeWidth="1"/>
           <line x1="250" y1="200" x2="400" y2="350" stroke="white" strokeWidth="1"/>
@@ -220,7 +234,6 @@ export default function HomePage() {
             </button>
           </div>
 
-          {/* 통계 배지 */}
           <div className="grid grid-cols-4 gap-4 max-w-3xl mx-auto">
             {stats.map((s) => (
               <div key={s.label} className="bg-gray-800/60 backdrop-blur rounded-xl px-4 py-3 border border-gray-700/50">
@@ -237,10 +250,15 @@ export default function HomePage() {
         {/* 기능 카드 */}
         <h2 className="text-white text-2xl font-black mb-6">주요 기능</h2>
         <div className="grid grid-cols-3 gap-4 mb-12">
-          {features.map((f) => (
+          {features.map((f, i) => (
             <div
               key={f.title}
               onClick={() => navigate(f.path)}
+              style={cardsVisible ? {
+                animation: `fadeSlideUp 0.5s ease forwards`,
+                animationDelay: `${i * 0.15}s`,
+                opacity: 0,
+              } : { opacity: 0 }}
               className={`bg-gradient-to-br ${f.color} bg-gray-800 rounded-xl p-6 cursor-pointer transition-all border border-gray-700 ${f.border} hover:scale-[1.02] hover:shadow-lg`}
             >
               <div className={`${f.iconColor} mb-4`}>{f.icon}</div>
