@@ -189,7 +189,14 @@ export default function PlayerPage() {
             {avSeasons.length > 1 && (
               <div className="flex gap-2 mt-3">
                 {avSeasons.map((s) => (
-                  <button key={s} onClick={() => { const id=playerId??raw?.player_id; if(id) loadPlayer(id,s); }}
+                  <button key={s} onClick={() => { const id = playerId ?? raw?.player_id;
+                  if (id) {
+                    setPrediction(null);
+                    setPredReq(false);
+                    setPredLoading(false);
+                    loadPlayer(id, s);
+                  }
+                }}
                     className={`px-3 py-1 rounded-lg text-xs font-bold transition-colors ${season===s?'bg-orange-500 text-white':'bg-gray-700 text-gray-400 hover:text-white'}`}>
                     {s}
                   </button>
