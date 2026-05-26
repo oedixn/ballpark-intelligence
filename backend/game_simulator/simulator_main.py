@@ -25,7 +25,15 @@ from typing import Dict, List, Tuple
 import math
 import random
 
-
+# ── KBO 리그 평균 & 베이지안 스무딩 상수 (2025 시즌 기준) ──────────────
+LEAGUE_AVG = {
+    "bb":     0.085,
+    "single": 0.150,
+    "double": 0.040,
+    "triple": 0.004,
+    "hr":     0.028,
+}
+SMOOTHING_K = 200
 
 @dataclass(frozen=True)
 class PlayerProb: #선수 1명의 확률 정보를 담는 클래스
@@ -145,48 +153,36 @@ class GameLog: #한 경기 전체 결과를 저장하는 클래스
 
 
 
-def record_to_player_prob(record: BattingRecord) -> PlayerProb: #선수의 실제 타격 기록을 변환하는 함수
+def record_to_player_prob(record: BattingRecord) -> PlayerProb:
     """
     선수의 실제 타격 기록을 PlayerProb 확률 구조로 변환
-
-    계산 방식:
-    - BB 확률 = (볼넷 + 사구) / PA
-    - 1B 확률 = 단타 / PA
-    - 2B 확률 = 2루타 / PA
-    - 3B 확률 = 3루타 / PA
-    - HR 확률 = 홈런 / PA
-    - OUT 확률 = 나머지
-
-    여기서 PA는 단순화해서
-    PA = AB + BB + HBP 로 계산한다.
-
-    실제 야구에서는 희생번트, 희생플라이, 타격방해 등도 PA에 포함될 수 있지만,
-    현재 모델의 이벤트가 BB, 1B, 2B, 3B, HR, OUT만 있으므로 단순화한다.
+    베이지안 스무딩 적용:
+      smoothed = (관측값 * PA + 리그평균 * K) / (PA + K)
+    PA가 적을수록 리그 평균 쪽으로 당겨짐
     """
-
     pa = record.ab + record.bb + record.hbp
-
     if pa <= 0:
         raise ValueError(f"{record.name}: 유효한 타석 수가 없습니다.")
 
     single = record.hits - record.double - record.triple - record.hr
-
     if single < 0:
         raise ValueError(f"{record.name}: 안타 세부 기록이 잘못되었습니다.")
 
-    bb_prob = (record.bb + record.hbp) / pa
-    single_prob = single / pa
-    double_prob = record.double / pa
-    triple_prob = record.triple / pa
-    hr_prob = record.hr / pa
+    obs_bb     = (record.bb + record.hbp) / pa
+    obs_single = single / pa
+    obs_double = record.double / pa
+    obs_triple = record.triple / pa
+    obs_hr     = record.hr / pa
 
-    out_prob = 1.0 - (
-        bb_prob
-        + single_prob
-        + double_prob
-        + triple_prob
-        + hr_prob
-    )
+    w = pa / (pa + SMOOTHING_K)
+
+    bb_prob     = w * obs_bb     + (1 - w) * LEAGUE_AVG["bb"]
+    single_prob = w * obs_single + (1 - w) * LEAGUE_AVG["single"]
+    double_prob = w * obs_double + (1 - w) * LEAGUE_AVG["double"]
+    triple_prob = w * obs_triple + (1 - w) * LEAGUE_AVG["triple"]
+    hr_prob     = w * obs_hr     + (1 - w) * LEAGUE_AVG["hr"]
+
+    out_prob = 1.0 - (bb_prob + single_prob + double_prob + triple_prob + hr_prob)
 
     return PlayerProb(
         name=record.name,
