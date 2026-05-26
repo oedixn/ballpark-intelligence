@@ -193,7 +193,7 @@ def get_team_lineup(team_name:str):
 def simulate_game(req:SimulateRequest):
     ta=[record_to_player_prob(BattingRecord(**p.dict())) for p in req.team_a_lineup]
     tb=[record_to_player_prob(BattingRecord(**p.dict())) for p in req.team_b_lineup]
-    g=MatchSimulator(team_a_name=req.team_a_name,team_a_lineup=ta,team_b_name=req.team_b_name,team_b_lineup=tb).simulate_game(innings=12)
+    g=MatchSimulator(team_a_name=req.team_a_name,team_a_lineup=ta,team_b_name=req.team_b_name,team_b_lineup=tb).simulate_game(innings=req.innings)
     return {"team_a_name":req.team_a_name,"team_b_name":req.team_b_name,"game_log":g,"is_draw":g.final_score[0]==g.final_score[1]}
 
 @app.post("/api/simulate/multi")
