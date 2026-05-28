@@ -1,8 +1,6 @@
 import axios from 'axios';
 
-const api = axios.create({
-  baseURL: 'http://localhost:8000',
-});
+const api = axios.create({ baseURL: 'http://localhost:8000' });
 
 export interface PlayerDB {
   player_id: string;
@@ -32,6 +30,8 @@ export interface PlayerDB {
   war: number | null;
   woba: number | null;
   position: string | null;
+  available_seasons?: number[];
+  current_season?: number;
 }
 
 export async function fetchPlayers(search?: string): Promise<PlayerDB[]> {
@@ -40,8 +40,9 @@ export async function fetchPlayers(search?: string): Promise<PlayerDB[]> {
   return res.data.players;
 }
 
-export async function fetchPlayerById(playerId: string): Promise<PlayerDB> {
-  const res = await api.get<PlayerDB>(`/api/players/${playerId}`);
+export async function fetchPlayerById(playerId: string, season?: number): Promise<PlayerDB> {
+  const params = season ? { season } : {};
+  const res = await api.get<PlayerDB>(`/api/players/${playerId}`, { params });
   return res.data;
 }
 
@@ -72,5 +73,38 @@ export async function optimizeLineup(lineup: {
     team_b_name: '최적화',
     team_b_lineup: [],
   });
+  return res.data;
+}
+
+export interface PlayerSeason {
+  season_year: number;
+  // 타자
+  avg?: number;
+  pa?: number;
+  hr?: number;
+  rbi?: number;
+  obp?: number;
+  slg?: number;
+  ops?: number;
+  bb_rate?: number;
+  k_rate?: number;
+  woba?: number;
+  // 투수
+  era?: number;
+  w?: number;
+  l?: number;
+  sv?: number;
+  ip?: string;
+  pitcher_so?: number;
+  whip?: number;
+}
+
+export interface PlayerSeasons {
+  type: 'hitter' | 'pitcher';
+  seasons: PlayerSeason[];
+}
+
+export async function fetchPlayerSeasons(playerId: string): Promise<PlayerSeasons> {
+  const res = await api.get<PlayerSeasons>(`/api/players/${playerId}/seasons`);
   return res.data;
 }

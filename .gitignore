@@ -19,3 +19,4 @@ frontend/dist/
 # Backend
 backend/__pycache__/
 backend/.env
+backend/game_simulator/simulator_main_backup.py

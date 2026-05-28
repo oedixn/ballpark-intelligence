@@ -287,18 +287,32 @@ export default function SimulatorPage() {
     setSpeed(s);
   }
 
+  const displayedInningSet = new Set(
+  displayed
+    .filter(e => e.type === 'inning_header')
+    .map(e => `${e.inning}-${e.half}`)
+);
+
   const scoreboard = gameLog ? {
-    away: {
-      team:    teamAName,
-      innings: gameLog.innings.filter(i => i.half === '초').map(i => i.runs),
-      total:   gameLog.final_score[0],
-    },
-    home: {
-      team:    teamBName,
-      innings: gameLog.innings.filter(i => i.half === '말').map(i => i.runs),
-      total:   gameLog.final_score[1],
-    },
-  } : null;
+  away: {
+    team: teamAName,
+    innings: gameLog.innings
+      .filter(i => i.half === '초' && displayedInningSet.has(`${i.inning}-초`))
+      .map(i => i.runs),
+    total: gameLog.innings
+      .filter(i => i.half === '초' && displayedInningSet.has(`${i.inning}-초`))
+      .reduce((sum, i) => sum + i.runs, 0),
+  },
+  home: {
+    team: teamBName,
+    innings: gameLog.innings
+      .filter(i => i.half === '말' && displayedInningSet.has(`${i.inning}-말`))
+      .map(i => i.runs),
+    total: gameLog.innings
+      .filter(i => i.half === '말' && displayedInningSet.has(`${i.inning}-말`))
+      .reduce((sum, i) => sum + i.runs, 0),
+  },
+} : null;
 
   return (
     <div className="min-h-screen bg-gray-900">
