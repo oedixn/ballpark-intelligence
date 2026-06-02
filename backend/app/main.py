@@ -264,7 +264,7 @@ def get_hitters(sort:Optional[str]="woba",limit:int=50):
             ROUND(CAST(pst.bb AS NUMERIC)/NULLIF(pst.pa,0)*100,1) AS bb_rate,
             ROUND(CAST(pst.so AS NUMERIC)/NULLIF(pst.pa,0)*100,1) AS k_rate,
             ROUND(CAST({WOBA} AS NUMERIC),3) AS woba,
-            ROUND(CAST((({WOBA})-0.273)/1.157+0.123)/0.123*100 AS NUMERIC),0) AS wrc_plus,
+            ROUND(CAST(((({WOBA})-0.273)/1.157+0.123)/0.123*100 AS NUMERIC),0) AS wrc_plus,
             def.position
             FROM players p JOIN player_hitter_stats pst ON p.player_id=pst.player_id
             JOIN teams t ON pst.team_id=t.team_id
@@ -373,7 +373,7 @@ def get_seasons(player_id:int):
             ROUND(CAST(pst.bb AS NUMERIC)/NULLIF(pst.pa,0)*100,1) AS bb_rate,
             ROUND(CAST(pst.so AS NUMERIC)/NULLIF(pst.pa,0)*100,1) AS k_rate,
             ROUND(CAST({WOBA} AS NUMERIC),3) AS woba,
-            ROUND(CAST((({WOBA})-0.273)/1.157+0.123)/0.123*100 AS NUMERIC),0) AS wrc_plus
+            ROUND(CAST(((({WOBA})-0.273)/1.157+0.123)/0.123*100) AS NUMERIC),0) AS wrc_plus
             FROM player_hitter_stats pst WHERE pst.player_id=%s::varchar AND pst.pa>0 ORDER BY season_year""",(player_id,))
         hr=cr.fetchall()
         cr.execute("SELECT season_year,ps.era,ps.w,ps.l,ps.sv,ps.ip,ps.so AS pitcher_so,ps.bb AS pitcher_bb,ps.whip,ps.g FROM player_pitcher_stats ps WHERE ps.player_id=%s::varchar ORDER BY season_year",(player_id,))
