@@ -147,11 +147,16 @@ def get_player(player_id:int, season:Optional[int]=None):
                 cr.execute("SELECT * FROM("+HITTER_Q+"WHERE pst.season_year=%s AND pst.pa>=5) sub WHERE sub.player_id=%s::varchar",(ls,player_id))
                 r=cr.fetchone()
         if not r:
-            cr.execute("SELECT MAX(season_year) FROM player_pitcher_stats WHERE player_id=%s::varchar AND g>=3",(player_id,))
-            lp=cr.fetchone(); lp=lp['max'] if lp and lp['max'] else target
-            cr.execute("SELECT * FROM("+PITCHER_Q+"WHERE ps.season_year=%s) sub WHERE sub.player_id=%s::varchar",(lp,player_id))
+            # 요청한 시즌으로 먼저 시도
+            cr.execute("SELECT * FROM("+PITCHER_Q+"WHERE ps.season_year=%s) sub WHERE sub.player_id=%s::varchar",(target,player_id))
             r=cr.fetchone()
-        cr.close(); c.close()
+            # 없으면 최신 시즌으로 fallback
+            if not r:
+                cr.execute("SELECT MAX(season_year) FROM player_pitcher_stats WHERE player_id=%s::varchar AND g>=3",(player_id,))
+                lp=cr.fetchone(); lp=lp['max'] if lp and lp['max'] else target
+                cr.execute("SELECT * FROM("+PITCHER_Q+"WHERE ps.season_year=%s) sub WHERE sub.player_id=%s::varchar",(lp,player_id))
+                r=cr.fetchone()
+                cr.close(); c.close()
         if not r: raise HTTPException(404,"선수를 찾을 수 없습니다.")
         result=row(r); result['available_seasons']=av; result['current_season']=target
         return result

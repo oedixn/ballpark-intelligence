@@ -433,35 +433,22 @@ def crawl_hitter_all_columns(
 
 
 def main():
-    team_code = "LG"
     series = "0"
     all_rows = []
 
-    for year in range(2021, 2026): #시작년도, 끝년도-1
-        season = str(year)
-        print(f"수집 시작: season={season}, team={team_code}")
-
-        rows = crawl_hitter_all_columns(
-            season=season,
-            team_code=team_code,
-            series=series,
-            sleep_sec=0.7,
-        )
-
-        print(f"수집 완료: season={season}, rows={len(rows)}")
-        all_rows.extend(rows)
+    for team_code in TEAM_CODES.values():
+        for year in range(2026, 2027):
+            season = str(year)
+            print(f"수집 시작: season={season}, team={team_code}")
+            rows = crawl_hitter_all_columns(
+                season=season,
+                team_code=team_code,
+                series=series,
+                sleep_sec=0.7,
+            )
+            print(f"수집 완료: season={season}, rows={len(rows)}")
+            all_rows.extend(rows)
 
     print(f"\n전체 수집 건수: {len(all_rows)}")
-    save_csv(all_rows, "hitter_all_columns_2021_2024_LG.csv")
+    save_csv(all_rows, "hitter_all_columns_2026.csv")
     print("CSV 저장 완료")
-
-    print("\n=== 앞 5개 ===")
-    for row in all_rows[:5]:
-        print(row)
-
-    print("\n=== 뒤 5개 ===")
-    for row in all_rows[-5:]:
-        print(row)
-
-if __name__ == "__main__":
-    main()
