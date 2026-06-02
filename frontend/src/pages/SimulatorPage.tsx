@@ -102,7 +102,6 @@ export default function SimulatorPage() {
 
   const [teamAName, setTeamAName] = useState(fromMyTeam?.teamName ?? urlTeamA ?? 'SSG LANDERS');
   const [teamBName, setTeamBName] = useState(fromMyTeam?.opponent ?? urlTeamB ?? 'LOTTE GIANTS');
-
   const [teamALineup, setTeamALineup] = useState(fromMyTeam?.lineup ?? DEFAULT_LINEUP_A);
   const [teamBLineup, setTeamBLineup] = useState(DEFAULT_LINEUP_B);
   const [lineupLoading, setLineupLoading] = useState(false);
@@ -126,7 +125,7 @@ export default function SimulatorPage() {
   const speedRef    = useRef(1);
   const timerRef    = useRef<ReturnType<typeof setTimeout> | null>(null);
   const bannerTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const bottomRef   = useRef<HTMLDivElement>(null);
+  const logScrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!urlTeamA && !urlTeamB) return;
@@ -147,6 +146,13 @@ export default function SimulatorPage() {
     if (urlTeamA || urlTeamB) return;
     fetchTeamLineup(fromMyTeam?.opponent ?? '롯데').then(setTeamBLineup).catch(() => setTeamBLineup(DEFAULT_LINEUP_B));
   }, []);
+
+  // 게임 로그 스크롤 하단 고정
+  useEffect(() => {
+    if (logScrollRef.current) {
+      logScrollRef.current.scrollTop = logScrollRef.current.scrollHeight;
+    }
+  }, [displayed]);
 
   function tick() {
     if (pausedRef.current) return;
@@ -183,7 +189,10 @@ export default function SimulatorPage() {
   async function handleStart() {
     setLoading(true); setError(null); setGameLog(null); setDisplayed([]);
     try {
-      const res = await simulateGame({ team_a_name: teamAName, team_a_lineup: teamALineup, team_b_name: teamBName, team_b_lineup: teamBLineup });
+      const res = await simulateGame({
+        team_a_name: teamAName, team_a_lineup: teamALineup,
+        team_b_name: teamBName, team_b_lineup: teamBLineup,
+      });
       setGameLog(res.game_log);
       startAnimation(res.game_log.innings);
       const scoreA = res.game_log.final_score[0];
@@ -254,19 +263,6 @@ export default function SimulatorPage() {
         ::-webkit-scrollbar-thumb { background:#f97316; border-radius:0; }
       `}</style>
 
-      {/* 배너 */}
-      {banner && bannerCfg[banner.event] && (() => {
-        const cfg = bannerCfg[banner.event];
-        return (
-          <div style={{ position:'absolute', top:0, left:0, right:0, bottom:0, display:'flex', alignItems:'center', justifyContent:'center', zIndex:9999, pointerEvents:'none', background:'rgba(0,0,0,0.7)' }}>
-            <div style={{ background:cfg.bg, border:cfg.border, borderRadius:'2px', padding:'2rem 3rem', textAlign:'center', minWidth:'260px', animation:'bannerIn 0.35s cubic-bezier(0.34,1.56,0.64,1) forwards', boxShadow:'6px 6px 0 #000', fontFamily:"'Press Start 2P',cursive" }}>
-              <div style={{ color:cfg.pc, fontSize:'11px', marginBottom:'12px', letterSpacing:'1px' }}>{banner.batter_name}</div>
-              <div style={{ color:cfg.ec, fontSize:cfg.fs, fontWeight:900, textShadow:'2px 2px 0 #000' }}>{eventToKorean[banner.event]}!</div>
-            </div>
-          </div>
-        );
-      })()}
-
       {/* 헤더 */}
       <div style={{ background:'#0f0f0f', borderBottom:'3px solid #f97316', padding:'24px 40px' }}>
         <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between' }}>
@@ -298,7 +294,6 @@ export default function SimulatorPage() {
             </div>
           </div>
         </div>
-
         {lineupLoading && (
           <p style={{ color:'#4b5563', fontSize:'8px', marginTop:'12px', animation:'blink 1s infinite' }}>LOADING LINEUP...</p>
         )}
@@ -389,6 +384,20 @@ export default function SimulatorPage() {
 
             {/* 경기 로그 */}
             <div className="retro-box" style={{ padding:'24px', position:'relative', overflow:'hidden' }}>
+
+              {/* 배너 — 게임 로그 영역에만 오버레이 */}
+              {banner && bannerCfg[banner.event] && (() => {
+                const cfg = bannerCfg[banner.event];
+                return (
+                  <div style={{ position:'absolute', top:0, left:0, right:0, bottom:0, display:'flex', alignItems:'center', justifyContent:'center', zIndex:99, pointerEvents:'none', background:'rgba(0,0,0,0.75)' }}>
+                    <div style={{ background:cfg.bg, border:cfg.border, borderRadius:'2px', padding:'1.5rem 2.5rem', textAlign:'center', minWidth:'220px', animation:'bannerIn 0.35s cubic-bezier(0.34,1.56,0.64,1) forwards', boxShadow:'6px 6px 0 #000', fontFamily:"'Press Start 2P',cursive" }}>
+                      <div style={{ color:cfg.pc, fontSize:'11px', marginBottom:'12px', letterSpacing:'1px' }}>{banner.batter_name}</div>
+                      <div style={{ color:cfg.ec, fontSize:cfg.fs, fontWeight:900, textShadow:'2px 2px 0 #000' }}>{eventToKorean[banner.event]}!</div>
+                    </div>
+                  </div>
+                );
+              })()}
+
               <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:'16px' }}>
                 <p style={{ color:'#f97316', fontSize:'9px', letterSpacing:'3px' }}>GAME LOG</p>
                 <div style={{ display:'flex', alignItems:'center', gap:'8px' }}>
@@ -413,7 +422,11 @@ export default function SimulatorPage() {
                 </div>
               </div>
 
-              <div style={{ maxHeight:'400px', overflowY:'auto', paddingRight:'8px', display:'flex', flexDirection:'column', gap:'4px' }}>
+              {/* 스크롤 컨테이너 — 하단 고정 */}
+              <div
+                ref={logScrollRef}
+                style={{ maxHeight:'400px', overflowY:'auto', paddingRight:'8px', display:'flex', flexDirection:'column', gap:'4px' }}
+              >
                 {displayed.map((ev, evIdx) => {
                   const evKey = `ev-${evIdx}`;
                   if (ev.type === 'inning_header') {
@@ -449,7 +462,6 @@ export default function SimulatorPage() {
                     </div>
                   );
                 })}
-                <div ref={bottomRef} />
               </div>
             </div>
 
