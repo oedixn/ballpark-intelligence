@@ -602,7 +602,7 @@ class MatchSimulator:#두 팀의 경기를 시뮬레이션하는 클래스
                 break
 
             # 최대 이닝 초과 시 무승부 종료
-            if inning >= innings:
+            if inning >= 12:
                 break
 
             # 다음 이닝 진행

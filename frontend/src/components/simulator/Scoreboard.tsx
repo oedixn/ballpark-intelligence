@@ -10,43 +10,61 @@ interface Props {
 }
 
 export default function Scoreboard({ away, home }: Props) {
-  const inningCount = Math.max(away.innings.length, home.innings.length, 9);
+  const inningCount  = Math.max(away.innings.length, home.innings.length, 9);
   const inningLabels = Array.from({ length: inningCount }, (_, i) => i + 1);
 
   return (
-    <div className="bg-gray-800 rounded-xl p-6">
-      <p className="text-gray-400 text-xs mb-4 uppercase tracking-widest">스코어보드</p>
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
+    <div style={{
+      background: '#0a0a0a',
+      border: '4px solid #f97316',
+      boxShadow: '0 0 0 2px #000, 0 0 0 4px #f97316, 8px 8px 0 #7c2d12',
+      borderRadius: '4px',
+      padding: '20px',
+      fontFamily: "'Press Start 2P', cursive",
+    }}>
+      <p style={{ color: '#f97316', fontSize: '8px', marginBottom: '16px', letterSpacing: '2px' }}>
+        ★ SCORE BOARD ★
+      </p>
+      <div style={{ overflowX: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '10px' }}>
           <thead>
-            <tr className="text-gray-400">
-              <th className="text-left py-2 pr-6 w-32">팀</th>
+            <tr>
+              <th style={{ textAlign: 'left', padding: '6px 12px 6px 0', color: '#f97316', width: '120px', fontSize: '8px' }}>TEAM</th>
               {inningLabels.map((i) => (
-                <th key={i} className="text-center py-2 w-8">{i}</th>
+                <th key={i} style={{ textAlign: 'center', padding: '6px 4px', color: '#6b7280', width: '28px', fontSize: '8px' }}>{i}</th>
               ))}
-              <th className="text-center py-2 px-4 text-white font-bold">R</th>
+              <th style={{ textAlign: 'center', padding: '6px 8px', color: '#f97316', fontSize: '10px' }}>R</th>
             </tr>
           </thead>
           <tbody>
-            {[away, home].map((team) => (
-              <tr key={team.team} className="border-t border-gray-700">
-                <td className="py-3 pr-6 text-white font-semibold text-xs">{team.team}</td>
+            {[away, home].map((team, ti) => (
+              <tr key={team.team} style={{ borderTop: '2px solid #1f2937' }}>
+                <td style={{ padding: '10px 12px 10px 0', color: '#fff', fontSize: '8px', whiteSpace: 'nowrap', overflow: 'hidden', maxWidth: '120px', textOverflow: 'ellipsis' }}>
+                  {team.team}
+                </td>
                 {inningLabels.map((_, i) => {
                   const score = team.innings[i];
                   return (
-                    <td key={i} className="text-center py-3 text-gray-300 w-8">
+                    <td key={i} style={{ textAlign: 'center', padding: '10px 4px', width: '28px' }}>
                       {score === undefined ? (
-                        <span className="text-gray-600">-</span>
+                        <span style={{ color: '#374151', fontSize: '8px' }}>-</span>
                       ) : score === 0 ? (
-                        <span className="text-gray-600">0</span>
+                        <span style={{ color: '#4b5563', fontSize: '8px' }}>0</span>
                       ) : (
-                        <span className="text-orange-400 font-bold">{score}</span>
+                        <span style={{ color: '#fbbf24', fontSize: '10px', textShadow: '0 0 8px #f97316' }}>{score}</span>
                       )}
                     </td>
                   );
                 })}
-                <td className="text-center py-3 px-4 text-orange-400 font-black text-lg">
-                  {team.total}
+                <td style={{ textAlign: 'center', padding: '10px 8px' }}>
+                  <span style={{
+                    color: '#f97316',
+                    fontSize: '16px',
+                    fontWeight: 900,
+                    textShadow: '2px 2px 0 #7c2d12',
+                  }}>
+                    {team.total}
+                  </span>
                 </td>
               </tr>
             ))}

@@ -100,13 +100,8 @@ export default function SimulatorPage() {
   const urlTeamA = searchParams.get('team_a');
   const urlTeamB = searchParams.get('team_b');
 
-  // 팀 이름 state로 관리
-  const [teamAName, setTeamAName] = useState(
-    fromMyTeam?.teamName ?? urlTeamA ?? 'SSG 랜더스'
-  );
-  const [teamBName, setTeamBName] = useState(
-    fromMyTeam?.opponent ?? urlTeamB ?? '롯데'
-  );
+  const [teamAName, setTeamAName] = useState(fromMyTeam?.teamName ?? urlTeamA ?? 'SSG LANDERS');
+  const [teamBName, setTeamBName] = useState(fromMyTeam?.opponent ?? urlTeamB ?? 'LOTTE GIANTS');
 
   const [teamALineup, setTeamALineup] = useState(fromMyTeam?.lineup ?? DEFAULT_LINEUP_A);
   const [teamBLineup, setTeamBLineup] = useState(DEFAULT_LINEUP_B);
@@ -133,46 +128,25 @@ export default function SimulatorPage() {
   const bannerTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const bottomRef   = useRef<HTMLDivElement>(null);
 
-  // URL 파라미터로 왔을 때 팀 이름 + 라인업 로드
   useEffect(() => {
     if (!urlTeamA && !urlTeamB) return;
-
     if (urlTeamA) setTeamAName(urlTeamA);
     if (urlTeamB) setTeamBName(urlTeamB);
-
     setLineupLoading(true);
     const promises: Promise<void>[] = [];
-
     if (urlTeamA && !fromMyTeam) {
-      promises.push(
-        fetchTeamLineup(urlTeamA)
-          .then(setTeamALineup)
-          .catch(() => setTeamALineup(DEFAULT_LINEUP_A))
-      );
+      promises.push(fetchTeamLineup(urlTeamA).then(setTeamALineup).catch(() => setTeamALineup(DEFAULT_LINEUP_A)));
     }
-
     if (urlTeamB) {
-      promises.push(
-        fetchTeamLineup(urlTeamB)
-          .then(setTeamBLineup)
-          .catch(() => setTeamBLineup(DEFAULT_LINEUP_B))
-      );
+      promises.push(fetchTeamLineup(urlTeamB).then(setTeamBLineup).catch(() => setTeamBLineup(DEFAULT_LINEUP_B)));
     }
-
     Promise.all(promises).finally(() => setLineupLoading(false));
   }, [urlTeamA, urlTeamB]);
 
-  // MyTeam에서 왔을 때 상대팀 라인업 로드
   useEffect(() => {
     if (urlTeamA || urlTeamB) return;
-    fetchTeamLineup(fromMyTeam?.opponent ?? '롯데')
-      .then(setTeamBLineup)
-      .catch(() => setTeamBLineup(DEFAULT_LINEUP_B));
+    fetchTeamLineup(fromMyTeam?.opponent ?? '롯데').then(setTeamBLineup).catch(() => setTeamBLineup(DEFAULT_LINEUP_B));
   }, []);
-
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [displayed]);
 
   function tick() {
     if (pausedRef.current) return;
@@ -207,188 +181,158 @@ export default function SimulatorPage() {
   }
 
   async function handleStart() {
-    setLoading(true);
-    setError(null);
-    setGameLog(null);
-    setDisplayed([]);
+    setLoading(true); setError(null); setGameLog(null); setDisplayed([]);
     try {
-      const res = await simulateGame({
-        team_a_name:   teamAName,
-        team_a_lineup: teamALineup,
-        team_b_name:   teamBName,
-        team_b_lineup: teamBLineup,
-      });
+      const res = await simulateGame({ team_a_name: teamAName, team_a_lineup: teamALineup, team_b_name: teamBName, team_b_lineup: teamBLineup });
       setGameLog(res.game_log);
       startAnimation(res.game_log.innings);
       const scoreA = res.game_log.final_score[0];
       const scoreB = res.game_log.final_score[1];
-      const result = scoreA > scoreB ? '승' : scoreA < scoreB ? '패' : '무';
-      await saveRecord({
-        team_name:     teamAName,
-        opponent_name: teamBName,
-        result,
-        my_score:  scoreA,
-        opp_score: scoreB,
-      });
-    } catch {
-      setError('시뮬레이션 중 오류가 발생했습니다.');
-    } finally {
-      setLoading(false);
-    }
+      await saveRecord({ team_name: teamAName, opponent_name: teamBName, result: scoreA > scoreB ? '승' : scoreA < scoreB ? '패' : '무', my_score: scoreA, opp_score: scoreB });
+    } catch { setError('시뮬레이션 중 오류가 발생했습니다.'); }
+    finally { setLoading(false); }
   }
 
   async function handleMultiStats() {
     setLoading(true);
     try {
-      const res = await simulateMulti({
-        team_a_name:   teamAName,
-        team_a_lineup: teamALineup,
-        team_b_name:   teamBName,
-        team_b_lineup: teamBLineup,
-        n_games: 1000,
-      });
-      setMultiStats(res);
-      setShowStats(true);
-    } catch {
-      setError('통계 계산 중 오류가 발생했습니다.');
-    } finally {
-      setLoading(false);
-    }
+      const res = await simulateMulti({ team_a_name: teamAName, team_a_lineup: teamALineup, team_b_name: teamBName, team_b_lineup: teamBLineup, n_games: 1000 });
+      setMultiStats(res); setShowStats(true);
+    } catch { setError('통계 계산 중 오류가 발생했습니다.'); }
+    finally { setLoading(false); }
   }
 
   function handleReset() {
     if (timerRef.current) clearTimeout(timerRef.current);
-    setGameLog(null);
-    setDisplayed([]);
-    setCurrentPA(null);
-    setBanner(null);
-    setMultiStats(null);
-    setError(null);
-    setDone(false);
-    setPaused(false);
+    setGameLog(null); setDisplayed([]); setCurrentPA(null); setBanner(null);
+    setMultiStats(null); setError(null); setDone(false); setPaused(false);
   }
 
   function handleToggle() {
     if (done) {
       startAnimation(gameLog!.innings);
     } else if (paused) {
-      pausedRef.current = false;
-      setPaused(false);
+      pausedRef.current = false; setPaused(false);
       timerRef.current = setTimeout(tick, SPEEDS[speedRef.current]);
     } else {
-      pausedRef.current = true;
-      setPaused(true);
+      pausedRef.current = true; setPaused(true);
       if (timerRef.current) clearTimeout(timerRef.current);
     }
   }
 
-  function handleSpeed(s: number) {
-    speedRef.current = s;
-    setSpeed(s);
-  }
+  function handleSpeed(s: number) { speedRef.current = s; setSpeed(s); }
 
   const displayedInningSet = new Set(
-  displayed
-    .filter(e => e.type === 'inning_header')
-    .map(e => `${e.inning}-${e.half}`)
-);
+    displayed.filter(e => e.type === 'inning_header').map(e => `${e.inning}-${e.half}`)
+  );
 
   const scoreboard = gameLog ? {
-  away: {
-    team: teamAName,
-    innings: gameLog.innings
-      .filter(i => i.half === '초' && displayedInningSet.has(`${i.inning}-초`))
-      .map(i => i.runs),
-    total: gameLog.innings
-      .filter(i => i.half === '초' && displayedInningSet.has(`${i.inning}-초`))
-      .reduce((sum, i) => sum + i.runs, 0),
-  },
-  home: {
-    team: teamBName,
-    innings: gameLog.innings
-      .filter(i => i.half === '말' && displayedInningSet.has(`${i.inning}-말`))
-      .map(i => i.runs),
-    total: gameLog.innings
-      .filter(i => i.half === '말' && displayedInningSet.has(`${i.inning}-말`))
-      .reduce((sum, i) => sum + i.runs, 0),
-  },
-} : null;
+    away: {
+      team: teamAName,
+      innings: gameLog.innings.filter(i => i.half === '초' && displayedInningSet.has(`${i.inning}-초`)).map(i => i.runs),
+      total: gameLog.innings.filter(i => i.half === '초' && displayedInningSet.has(`${i.inning}-초`)).reduce((s, i) => s + i.runs, 0),
+    },
+    home: {
+      team: teamBName,
+      innings: gameLog.innings.filter(i => i.half === '말' && displayedInningSet.has(`${i.inning}-말`)).map(i => i.runs),
+      total: gameLog.innings.filter(i => i.half === '말' && displayedInningSet.has(`${i.inning}-말`)).reduce((s, i) => s + i.runs, 0),
+    },
+  } : null;
 
   return (
-    <div className="min-h-screen bg-gray-900">
+    <div className="min-h-screen" style={{ background: '#0a0a0a', fontFamily: "'Press Start 2P', cursive" }}>
       <style>{`
         @keyframes bannerIn { from { opacity:0; transform:scale(0.8); } to { opacity:1; transform:scale(1); } }
         @keyframes fadeSlideIn { from { opacity:0; transform:translateY(-6px); } to { opacity:1; transform:translateY(0); } }
+        @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
         .pa-row { animation: fadeSlideIn 0.3s ease forwards; opacity:0; }
+        .retro-box { background:#0a0a0a; border:3px solid #f97316; box-shadow:4px 4px 0 #7c2d12; border-radius:2px; }
+        .retro-btn { font-family:'Press Start 2P',cursive; border:2px solid currentColor; box-shadow:3px 3px 0 rgba(0,0,0,0.5); cursor:pointer; transition:transform 0.1s,box-shadow 0.1s; }
+        .retro-btn:active { transform:translate(2px,2px); box-shadow:1px 1px 0 rgba(0,0,0,0.5); }
+        ::-webkit-scrollbar { width:6px; }
+        ::-webkit-scrollbar-track { background:#000; }
+        ::-webkit-scrollbar-thumb { background:#f97316; border-radius:0; }
       `}</style>
 
+      {/* 배너 */}
       {banner && bannerCfg[banner.event] && (() => {
         const cfg = bannerCfg[banner.event];
         return (
-          <div style={{ position:'fixed', top:0, left:0, right:0, bottom:0, display:'flex', alignItems:'center', justifyContent:'center', zIndex:9999, pointerEvents:'none' }}>
-            <div style={{ background:cfg.bg, border:cfg.border, borderRadius:'1rem', padding:'1.25rem 2.5rem', textAlign:'center', minWidth:'220px', animation:'bannerIn 0.35s cubic-bezier(0.34,1.56,0.64,1) forwards' }}>
-              <div style={{ color:cfg.pc, fontSize:'1.1rem', fontWeight:700, marginBottom:'0.25rem' }}>{banner.batter_name}</div>
-              <div style={{ color:cfg.ec, fontSize:cfg.fs, fontWeight:900 }}>{eventToKorean[banner.event]}!</div>
+          <div style={{ position:'absolute', top:0, left:0, right:0, bottom:0, display:'flex', alignItems:'center', justifyContent:'center', zIndex:9999, pointerEvents:'none', background:'rgba(0,0,0,0.7)' }}>
+            <div style={{ background:cfg.bg, border:cfg.border, borderRadius:'2px', padding:'2rem 3rem', textAlign:'center', minWidth:'260px', animation:'bannerIn 0.35s cubic-bezier(0.34,1.56,0.64,1) forwards', boxShadow:'6px 6px 0 #000', fontFamily:"'Press Start 2P',cursive" }}>
+              <div style={{ color:cfg.pc, fontSize:'11px', marginBottom:'12px', letterSpacing:'1px' }}>{banner.batter_name}</div>
+              <div style={{ color:cfg.ec, fontSize:cfg.fs, fontWeight:900, textShadow:'2px 2px 0 #000' }}>{eventToKorean[banner.event]}!</div>
             </div>
           </div>
         );
       })()}
 
-      <div className="bg-gradient-to-r from-gray-800 to-gray-900 border-b border-gray-700 px-10 py-8">
-        <div className="flex items-center justify-between">
+      {/* 헤더 */}
+      <div style={{ background:'#0f0f0f', borderBottom:'3px solid #f97316', padding:'24px 40px' }}>
+        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between' }}>
           <div>
-            <h1 className="text-white text-3xl font-black">경기 시뮬레이터</h1>
-            <p className="text-gray-400 text-sm mt-1">마르코프 체인 기반 경기 예측</p>
+            <h1 style={{ color:'#f97316', fontSize:'14px', marginBottom:'8px', textShadow:'2px 2px 0 #7c2d12' }}>GAME SIMULATOR</h1>
+            <p style={{ color:'#4b5563', fontSize:'8px' }}>MARKOV CHAIN BASE BALL</p>
           </div>
-          <div className="flex items-center gap-6">
-            <div className="text-right">
-              <p className="text-white font-bold">{teamAName}</p>
-              <p className="text-gray-400 text-xs">원정</p>
+          <div style={{ display:'flex', alignItems:'center', gap:'24px' }}>
+            <div style={{ textAlign:'right' }}>
+              <p style={{ color:'#fff', fontSize:'10px', marginBottom:'4px' }}>{teamAName}</p>
+              <p style={{ color:'#4b5563', fontSize:'8px' }}>AWAY</p>
             </div>
-            <div className="bg-gray-700 rounded-full px-4 py-2">
-              <span className="text-orange-400 font-black text-xl">{gameLog ? gameLog.final_score[0] : '-'}</span>
-              <span className="text-gray-500 mx-2">:</span>
-              <span className="text-orange-400 font-black text-xl">{gameLog ? gameLog.final_score[1] : '-'}</span>
+            <div style={{ background:'#000', border:'3px solid #f97316', boxShadow:'4px 4px 0 #7c2d12', padding:'12px 24px', textAlign:'center', minWidth:'100px' }}>
+              {done && gameLog ? (
+                <>
+                  <span style={{ color:'#f97316', fontSize:'22px', textShadow:'2px 2px 0 #7c2d12' }}>{gameLog.final_score[0]}</span>
+                  <span style={{ color:'#374151', margin:'0 8px', fontSize:'18px' }}>:</span>
+                  <span style={{ color:'#f97316', fontSize:'22px', textShadow:'2px 2px 0 #7c2d12' }}>{gameLog.final_score[1]}</span>
+                </>
+              ) : (
+                <span style={{ color:'#374151', fontSize:'14px', animation: gameLog ? 'blink 0.8s infinite' : 'none' }}>
+                  {gameLog ? '...' : '-  :  -'}
+                </span>
+              )}
             </div>
-            <div className="text-left">
-              <p className="text-white font-bold">{teamBName}</p>
-              <p className="text-gray-400 text-xs">홈</p>
+            <div style={{ textAlign:'left' }}>
+              <p style={{ color:'#fff', fontSize:'10px', marginBottom:'4px' }}>{teamBName}</p>
+              <p style={{ color:'#4b5563', fontSize:'8px' }}>HOME</p>
             </div>
           </div>
         </div>
 
         {lineupLoading && (
-          <p className="text-gray-500 text-xs mt-3 animate-pulse">⚾ 라인업 불러오는 중...</p>
+          <p style={{ color:'#4b5563', fontSize:'8px', marginTop:'12px', animation:'blink 1s infinite' }}>LOADING LINEUP...</p>
         )}
-
         {!lineupLoading && (urlTeamA || fromMyTeam) && (
-          <div className="mt-4 flex flex-wrap gap-2">
+          <div style={{ marginTop:'16px', display:'flex', flexWrap:'wrap', gap:'8px' }}>
             {teamALineup.map((p, i) => (
-              <span key={i} className="text-xs bg-gray-700 text-gray-300 px-3 py-1 rounded-full">
-                {i + 1}. {p.name}
+              <span key={i} style={{ fontSize:'8px', background:'#1a1a1a', color:'#9ca3af', padding:'4px 8px', border:'1px solid #374151' }}>
+                {i+1}. {p.name}
               </span>
             ))}
           </div>
         )}
       </div>
 
-      <div className="px-10 py-8 space-y-6">
+      <div style={{ padding:'32px 40px', display:'flex', flexDirection:'column', gap:'20px' }}>
         {error && (
-          <div className="bg-red-900/30 border border-red-700 rounded-xl px-6 py-4 text-red-400">{error}</div>
+          <div style={{ background:'#1a0a0a', border:'3px solid #ef4444', padding:'16px', color:'#ef4444', fontSize:'9px' }}>
+            !! ERROR: {error}
+          </div>
         )}
 
         {!gameLog && !loading && !lineupLoading && (
-          <div className="flex justify-center py-10">
-            <button onClick={handleStart} className="bg-orange-500 hover:bg-orange-600 text-white font-black text-lg px-12 py-4 rounded-xl transition-colors">
-              ▶ 경기 시작
+          <div style={{ display:'flex', justifyContent:'center', padding:'60px 0' }}>
+            <button onClick={handleStart} className="retro-btn"
+              style={{ background:'#f97316', color:'#000', fontSize:'13px', padding:'20px 48px', border:'3px solid #fff', boxShadow:'6px 6px 0 #7c2d12' }}>
+              ▶ PLAY BALL
             </button>
           </div>
         )}
 
         {(loading || lineupLoading) && (
-          <div className="flex justify-center py-10">
-            <p className="text-gray-400 text-lg animate-pulse">
-              {lineupLoading ? '⚾ 라인업 로딩 중...' : '⚾ 시뮬레이션 중...'}
+          <div style={{ display:'flex', justifyContent:'center', padding:'60px 0' }}>
+            <p style={{ color:'#f97316', fontSize:'11px', animation:'blink 0.8s infinite' }}>
+              {lineupLoading ? 'LOADING...' : 'SIMULATING...'}
             </p>
           </div>
         )}
@@ -397,61 +341,93 @@ export default function SimulatorPage() {
           <>
             <Scoreboard away={scoreboard.away} home={scoreboard.home} />
 
+            {/* 현황 패널 */}
             {currentPA && (
-              <div className="bg-gray-800 rounded-xl px-6 py-3 flex items-center gap-6 border border-gray-700">
+              <div className="retro-box" style={{ padding:'20px 24px', display:'flex', alignItems:'center', gap:'32px' }}>
                 <div>
-                  <p className="text-gray-500 text-xs mb-1">아웃</p>
-                  <div className="flex gap-1.5">
-                    {[0, 1].map((dotIdx) => (
+                  <p style={{ color:'#6b7280', fontSize:'9px', marginBottom:'10px', letterSpacing:'1px' }}>OUT</p>
+                  <div style={{ display:'flex', gap:'8px' }}>
+                    {[0,1].map((dotIdx) => (
                       <div key={dotIdx} style={{
-                        width:'12px', height:'12px', borderRadius:'50%',
-                        border:`2px solid ${dotIdx < (currentPA.outs_after >= 3 ? 0 : currentPA.outs_after) ? '#f97316' : '#4b5563'}`,
+                        width:'16px', height:'16px', borderRadius:'50%',
+                        border:`2px solid ${dotIdx < (currentPA.outs_after >= 3 ? 0 : currentPA.outs_after) ? '#f97316' : '#374151'}`,
                         background: dotIdx < (currentPA.outs_after >= 3 ? 0 : currentPA.outs_after) ? '#f97316' : 'transparent',
+                        boxShadow: dotIdx < (currentPA.outs_after >= 3 ? 0 : currentPA.outs_after) ? '0 0 8px #f97316' : 'none',
                       }} />
                     ))}
                   </div>
                 </div>
+
+                {/* 도트 야구장 미니맵 */}
                 <div>
-                  <p className="text-gray-500 text-xs mb-1">주자</p>
-                  <p className="text-white text-sm font-bold">{currentPA.bases_after}</p>
+                  <p style={{ color:'#6b7280', fontSize:'9px', marginBottom:'10px', letterSpacing:'1px' }}>BASE</p>
+                  <svg viewBox="0 0 70 70" width="70" height="70">
+                    <polygon points="35,8 62,35 35,62 8,35" fill="none" stroke="#374151" strokeWidth="1.5"/>
+                    <rect x="55" y="28" width="12" height="12" rx="1"
+                      fill={currentPA.bases_after?.includes('1루') ? '#f97316' : '#1f2937'}
+                      stroke={currentPA.bases_after?.includes('1루') ? '#f97316' : '#4b5563'} strokeWidth="1.5"/>
+                    <rect x="28" y="1" width="12" height="12" rx="1"
+                      fill={currentPA.bases_after?.includes('2루') ? '#f97316' : '#1f2937'}
+                      stroke={currentPA.bases_after?.includes('2루') ? '#f97316' : '#4b5563'} strokeWidth="1.5"/>
+                    <rect x="1" y="28" width="12" height="12" rx="1"
+                      fill={currentPA.bases_after?.includes('3루') ? '#f97316' : '#1f2937'}
+                      stroke={currentPA.bases_after?.includes('3루') ? '#f97316' : '#4b5563'} strokeWidth="1.5"/>
+                    <rect x="28" y="57" width="12" height="12" rx="1" fill="#1f2937" stroke="#4b5563" strokeWidth="1.5"/>
+                  </svg>
                 </div>
-                <div className="ml-auto">
-                  <p className="text-gray-500 text-xs mb-1">현재 타자</p>
-                  <p className="text-white text-sm font-bold">{currentPA.batter_name}</p>
+
+                <div>
+                  <p style={{ color:'#6b7280', fontSize:'9px', marginBottom:'6px', letterSpacing:'1px' }}>RUNNER</p>
+                  <p style={{ color:'#e5e7eb', fontSize:'10px' }}>{currentPA.bases_after || '없음'}</p>
+                </div>
+                <div style={{ marginLeft:'auto' }}>
+                  <p style={{ color:'#6b7280', fontSize:'9px', marginBottom:'6px', letterSpacing:'1px' }}>AT BAT</p>
+                  <p style={{ color:'#f97316', fontSize:'11px', textShadow:'1px 1px 0 #7c2d12' }}>{currentPA.batter_name}</p>
                 </div>
               </div>
             )}
 
-            <div className="bg-gray-800 rounded-xl p-6">
-              <div className="flex items-center justify-between mb-4">
-                <p className="text-gray-400 text-xs uppercase tracking-widest">경기 로그</p>
-                <div className="flex items-center gap-2">
-                  <div className="flex gap-1">
-                    {['느리게', '보통', '빠르게'].map((label, sIdx) => (
-                      <button key={sIdx} onClick={() => handleSpeed(sIdx)} className="text-xs px-2 py-1 rounded"
-                        style={{ background: speed === sIdx ? '#f97316' : '#374151', color: speed === sIdx ? '#fff' : '#9ca3af' }}>
+            {/* 경기 로그 */}
+            <div className="retro-box" style={{ padding:'24px', position:'relative', overflow:'hidden' }}>
+              <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:'16px' }}>
+                <p style={{ color:'#f97316', fontSize:'9px', letterSpacing:'3px' }}>GAME LOG</p>
+                <div style={{ display:'flex', alignItems:'center', gap:'8px' }}>
+                  <div style={{ display:'flex', gap:'4px' }}>
+                    {[['SLOW',0],['NORM',1],['FAST',2]].map(([label,sIdx]) => (
+                      <button key={sIdx} onClick={() => handleSpeed(Number(sIdx))} className="retro-btn"
+                        style={{
+                          fontSize:'8px', padding:'5px 10px',
+                          background: speed === Number(sIdx) ? '#f97316' : '#1a1a1a',
+                          color: speed === Number(sIdx) ? '#000' : '#6b7280',
+                          border: `2px solid ${speed === Number(sIdx) ? '#f97316' : '#374151'}`,
+                          boxShadow: speed === Number(sIdx) ? '2px 2px 0 #7c2d12' : '2px 2px 0 #000',
+                        }}>
                         {label}
                       </button>
                     ))}
                   </div>
-                  <button onClick={handleToggle} className="text-xs px-3 py-1 rounded"
-                    style={{ background:'#374151', color:'#d1d5db' }}>
-                    {done ? '처음부터' : paused ? '재생' : '일시정지'}
+                  <button onClick={handleToggle} className="retro-btn"
+                    style={{ fontSize:'8px', padding:'5px 12px', background:'#1a1a1a', color:'#d1d5db', border:'2px solid #374151', boxShadow:'2px 2px 0 #000' }}>
+                    {done ? 'RETRY' : paused ? '▶ PLAY' : '⏸ PAUSE'}
                   </button>
                 </div>
               </div>
 
-              <div className="space-y-1 max-h-96 overflow-y-auto pr-2">
+              <div style={{ maxHeight:'400px', overflowY:'auto', paddingRight:'8px', display:'flex', flexDirection:'column', gap:'4px' }}>
                 {displayed.map((ev, evIdx) => {
                   const evKey = `ev-${evIdx}`;
                   if (ev.type === 'inning_header') {
                     return (
-                      <div key={evKey} className="flex items-center gap-2 py-2 mt-2 border-b border-gray-700">
-                        <span className="text-xs font-bold px-2 py-0.5 rounded"
-                          style={{ background: ev.half === '초' ? '#1e3a5f' : '#3b1f1f', color: ev.half === '초' ? '#60a5fa' : '#f87171' }}>
+                      <div key={evKey} style={{ display:'flex', alignItems:'center', gap:'10px', padding:'10px 0', marginTop:'8px', borderBottom:'2px solid #1f2937' }}>
+                        <span style={{
+                          fontSize:'8px', fontFamily:"'Press Start 2P',cursive", padding:'4px 10px',
+                          background: ev.half === '초' ? '#0c1a3a' : '#2d0a0a',
+                          color: ev.half === '초' ? '#60a5fa' : '#f87171',
+                          border: `1px solid ${ev.half === '초' ? '#3b82f6' : '#ef4444'}`,
+                        }}>
                           {ev.inning}회{ev.half}
                         </span>
-                        <span className="text-gray-500 text-xs">{ev.teamName}</span>
+                        <span style={{ color:'#9ca3af', fontSize:'9px' }}>{ev.teamName}</span>
                       </div>
                     );
                   }
@@ -459,16 +435,15 @@ export default function SimulatorPage() {
                   const pa    = ev.pa;
                   const badge = eventBadgeStyle[pa.event] ?? { background:'#374151', color:'#9ca3af' };
                   return (
-                    <div key={evKey} className="pa-row flex items-center gap-3 text-sm py-1.5 border-b border-gray-700/50 last:border-0">
-                      <span className="text-gray-400 w-16 shrink-0 text-xs">{pa.batter_name}</span>
-                      <span className="text-xs font-bold px-2 py-0.5 rounded shrink-0"
-                        style={{ background:badge.background, color:badge.color }}>
+                    <div key={evKey} className="pa-row" style={{ display:'flex', alignItems:'center', gap:'12px', padding:'7px 0', borderBottom:'1px solid #151515' }}>
+                      <span style={{ color:'#9ca3af', width:'72px', flexShrink:0, fontSize:'9px' }}>{pa.batter_name}</span>
+                      <span style={{ fontSize:'8px', fontFamily:"'Press Start 2P',cursive", padding:'3px 8px', flexShrink:0, background:badge.background, color:badge.color }}>
                         {eventToKorean[pa.event] ?? pa.event}
                       </span>
-                      <span className="text-gray-600 text-xs flex-1">{pa.outs_after}아웃 · {pa.bases_after}</span>
+                      <span style={{ color:'#6b7280', fontSize:'8px', flex:1 }}>{pa.outs_after}아웃 · {pa.bases_after}</span>
                       {pa.runs_scored > 0 && (
-                        <span style={{ color:'#f97316', fontSize:'0.75rem', fontWeight:700, marginLeft:'auto' }}>
-                          +{pa.runs_scored}점 ★
+                        <span style={{ color:'#f97316', fontSize:'9px', fontWeight:700, marginLeft:'auto', textShadow:'1px 1px 0 #7c2d12' }}>
+                          +{pa.runs_scored}★
                         </span>
                       )}
                     </div>
@@ -478,12 +453,15 @@ export default function SimulatorPage() {
               </div>
             </div>
 
-            <div className="flex gap-4">
-              <button onClick={handleReset} className="bg-gray-700 hover:bg-gray-600 text-white font-bold px-8 py-3 rounded-xl transition-colors">
-                🔄 다시 시뮬
+            {/* 하단 버튼 */}
+            <div style={{ display:'flex', gap:'16px' }}>
+              <button onClick={handleReset} className="retro-btn"
+                style={{ background:'#1a1a1a', color:'#9ca3af', fontSize:'9px', padding:'14px 28px', border:'2px solid #374151', boxShadow:'4px 4px 0 #000' }}>
+                ↺ RESET
               </button>
-              <button onClick={handleMultiStats} disabled={loading} className="bg-blue-600 hover:bg-blue-700 text-white font-bold px-8 py-3 rounded-xl transition-colors disabled:opacity-50">
-                📊 100경기 통계
+              <button onClick={handleMultiStats} disabled={loading} className="retro-btn"
+                style={{ background:'#0c1a3a', color:'#60a5fa', fontSize:'9px', padding:'14px 28px', border:'2px solid #3b82f6', boxShadow:'4px 4px 0 #1e3a5f', opacity: loading ? 0.5 : 1 }}>
+                ▣ 100 GAMES STAT
               </button>
             </div>
           </>
