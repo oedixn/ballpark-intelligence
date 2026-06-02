@@ -353,6 +353,68 @@ def get_schedule(month:Optional[str]=None):
         return {"month":tm,"games":games}
     except Exception as e: raise HTTPException(500,str(e))
 
+@app.get("/api/teams/{team_name}/recent")
+def get_team_recent(team_name: str):
+    try:
+        from datetime import datetime
+        now = datetime.now()
+        results = []
+
+        # 이번 달과 저번 달 경기 가져오기
+        for month in [f"{now.month-1:02d}", f"{now.month:02d}"]:
+            if int(month) < 1: continue
+            data = urllib.parse.urlencode({
+                "leId":"1","srId":"0","srIdList":"0,9","seasonId":"2026",
+                "gameWeek":"","teamId":"","stadiumId":"","gameId":"",
+                "gameDay":"","gameMonth": month
+            }).encode()
+            req = urllib.request.Request(
+                "https://www.koreabaseball.com/ws/Schedule.asmx/GetScheduleList",
+                data=data,
+                headers={"Content-Type":"application/x-www-form-urlencoded",
+                         "User-Agent":"Mozilla/5.0",
+                         "Referer":"https://www.koreabaseball.com/Schedule/Schedule.aspx"})
+            try:
+                with urllib.request.urlopen(req, timeout=10) as res:
+                    raw = J.loads(res.read().decode("utf-8"))
+            except: continue
+
+            ST = ["잠실","문학","사직","수원","고척","대구","광주","창원","대전","포항","울산","인천"]
+            cd = ""
+            for ro in raw.get("rows", []):
+                cells = ro.get("row", [])
+                if not cells: continue
+                for c in cells:
+                    if c.get("Class") == "day":
+                        cd = re.sub(r"<[^>]+>","",c.get("Text","")).strip(); break
+                tt = pt = ""
+                for c in cells:
+                    cls, txt = c.get("Class"), c.get("Text","")
+                    if cls == "time": tt = re.sub(r"<[^>]+>","",txt).strip()
+                    elif cls == "play": pt = txt
+                if not pt or not cd: continue
+                teams = re.findall(r"<span(?:[^>]*)>([^<]+)</span>", pt)
+                scores = re.findall(r'<span class="(?:win|lose|same)">([^<]+)</span>', pt)
+                wc = re.findall(r'<span class="(win|lose|same)">', pt)
+                if len(teams) < 2 or not scores: continue
+                sa, sb = scores[0] if len(scores) >= 1 else None, scores[1] if len(scores) >= 2 else None
+                if not sa or not sb: continue
+                canceled = "우천" in pt or "취소" in pt
+                if canceled: continue
+                ta, tb = teams[0], teams[-1]
+                if ta == team_name:
+                    results.append({"date": cd, "opponent": tb, "score": f"{sa}:{sb}",
+                        "result": "W" if wc and wc[0]=="win" else "L" if wc and wc[0]=="lose" else "D"})
+                elif tb == team_name:
+                    results.append({"date": cd, "opponent": ta, "score": f"{sb}:{sa}",
+                        "result": "W" if wc and wc[0]=="lose" else "L" if wc and wc[0]=="win" else "D"})
+
+        # 날짜 기준 정렬 후 최근 5경기
+        recent5 = results[-5:] if len(results) >= 5 else results
+        return {"team": team_name, "recent": recent5}
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
 @app.get("/api/player-image/{player_id}")
 def get_player_image(player_id:int):
     try:

@@ -16,6 +16,13 @@ interface TeamRank {
   streak: string;
 }
 
+interface RecentGame {
+  date: string;
+  opponent: string;
+  score: string;
+  result: 'W' | 'L' | 'D';
+}
+
 interface HitterStat {
   player_id: string;
   player_name: string;
@@ -77,6 +84,7 @@ export default function StatsPage() {
   const navigate = useNavigate();
   const [tab, setTab]                   = useState<'team' | 'hitter' | 'pitcher'>('team');
   const [teams, setTeams]               = useState<TeamRank[]>([]);
+  const [recentMap, setRecentMap]       = useState<Record<string, RecentGame[]>>({});
   const [hitters, setHitters]           = useState<HitterStat[]>([]);
   const [pitchers, setPitchers]         = useState<PitcherStat[]>([]);
   const [hitterSort, setHitterSort]     = useState<HitterSortKey>('woba');
@@ -87,14 +95,26 @@ export default function StatsPage() {
     setLoading(true);
     if (tab === 'team') {
       api.get('/api/stats/team-rank')
-        .then(res => setTeams(res.data.teams))
+        .then(res => {
+          setTeams(res.data.teams);
+          res.data.teams.forEach((t: TeamRank) => {
+            api.get(`/api/teams/${encodeURIComponent(t.team_name)}/recent`)
+              .then(r => setRecentMap(prev => ({ ...prev, [t.team_name]: r.data.recent })))
+              .catch(() => {});
+          });
+        })
         .catch(() => {})
         .finally(() => setLoading(false));
     } else if (tab === 'hitter') {
-      api.get(`/api/stats/hitters?sort=${hitterSort}&limit=50`)
-        .then(res => setHitters(res.data.hitters))
-        .catch(() => {})
-        .finally(() => setLoading(false));
+      const fetch = () => {
+        api.get(`/api/stats/hitters?sort=${hitterSort}&limit=50`)
+          .then(res => setHitters(res.data.hitters))
+          .catch(() => {})
+          .finally(() => setLoading(false));
+      };
+      fetch();
+      const interval = setInterval(fetch, 60000);
+      return () => clearInterval(interval);
     } else {
       api.get(`/api/stats/pitchers?sort=${pitcherSort}&limit=50`)
         .then(res => setPitchers(res.data.pitchers))
@@ -151,8 +171,7 @@ export default function StatsPage() {
                   <th className="text-center px-4 py-4">패</th>
                   <th className="text-center px-4 py-4">무</th>
                   <th className="text-center px-4 py-4">승률</th>
-                  <th className="text-center px-4 py-4">최근 10경기</th>
-                  <th className="text-center px-4 py-4">연속</th>
+                  <th className="text-center px-4 py-4">최근 5경기</th>
                 </tr>
               </thead>
               <tbody>
@@ -176,15 +195,24 @@ export default function StatsPage() {
                         {Number(team.win_rate).toFixed(3)}
                       </span>
                     </td>
-                    <td className="text-center px-4 py-4 text-gray-400 text-xs">{team.last10 ?? '-'}</td>
                     <td className="text-center px-4 py-4">
-                      <span className={`text-xs font-bold px-2 py-0.5 rounded ${
-                        team.streak?.startsWith('승') ? 'bg-blue-500/20 text-blue-400'
-                        : team.streak?.startsWith('패') ? 'bg-red-500/20 text-red-400'
-                        : 'bg-gray-600 text-gray-400'
-                      }`}>
-                        {team.streak ?? '-'}
-                      </span>
+                      <div className="flex items-center justify-center gap-1">
+                        {(recentMap[team.team_name] ?? []).map((g, gi) => (
+                          <span
+                            key={gi}
+                            title={`${g.date} vs ${g.opponent} ${g.score}`}
+                            className={`w-6 h-6 rounded-full text-xs font-black flex items-center justify-center cursor-default
+                              ${g.result === 'W' ? 'bg-blue-500 text-white' :
+                                g.result === 'L' ? 'bg-red-500/80 text-white' :
+                                'bg-gray-500 text-white'}`}
+                          >
+                            {g.result === 'W' ? '승' : g.result === 'L' ? '패' : '무'}
+                          </span>
+                        ))}
+                        {(recentMap[team.team_name] ?? []).length === 0 && (
+                          <span className="text-gray-600 text-xs animate-pulse">로딩중</span>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}
