@@ -29,6 +29,78 @@ function PlayerAvatar({ position }: { position: string }) {
   );
 }
 
+function SpotlightSection({ onSelect }: { onSelect: (id: string) => void }) {
+  const [hitters, setHitters] = useState<any[]>([]);
+  const [pitchers, setPitchers] = useState<any[]>([]);
+
+  useEffect(() => {
+    fetch('http://localhost:8000/api/stats/hitters?sort=woba&limit=5')
+      .then(r => r.json()).then(d => setHitters(d.hitters ?? [])).catch(() => {});
+    fetch('http://localhost:8000/api/stats/pitchers?sort=era&limit=5')
+      .then(r => r.json()).then(d => setPitchers(d.pitchers ?? [])).catch(() => {});
+  }, []);
+
+  const MEDALS = ['🥇','🥈','🥉','4','5'];
+
+  return (
+    <div className="max-w-4xl">
+      <p className="text-gray-500 text-xs uppercase tracking-widest mb-6">⚾ 2026 시즌 주목 선수</p>
+
+      {/* 타자 TOP 5 */}
+      <div className="mb-10">
+        <div className="flex items-center gap-2 mb-4">
+          <span className="text-orange-400 text-sm font-black">타자</span>
+          <span className="text-gray-600 text-xs">wOBA 기준</span>
+        </div>
+        <div className="grid grid-cols-5 gap-3">
+          {hitters.map((p, i) => (
+            <button key={p.player_id} onClick={() => onSelect(p.player_id)}
+              className="bg-gray-800 hover:bg-gray-700 rounded-xl p-4 text-left transition-colors border border-gray-700 hover:border-orange-500/50">
+              <div className="text-lg mb-2">
+  {i < 3 ? MEDALS[i] : <span className="text-white font-black">{i + 1}</span>}
+</div>
+              <p className="text-white text-sm font-black truncate">{p.player_name}</p>
+              <p className="text-gray-500 text-xs mb-3">{p.team_name} · {p.position ?? '-'}</p>
+              <p className="text-orange-400 text-lg font-black">{Number(p.woba).toFixed(3)}</p>
+              <p className="text-gray-600 text-xs">wOBA</p>
+              <div className="mt-2 pt-2 border-t border-gray-700">
+                <p className="text-gray-400 text-xs">OPS <span className="text-gray-300 font-bold">{Number(p.ops).toFixed(3)}</span></p>
+                <p className="text-gray-400 text-xs">HR <span className="text-gray-300 font-bold">{p.hr}</span></p>
+              </div>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* 투수 TOP 5 */}
+      <div>
+        <div className="flex items-center gap-2 mb-4">
+          <span className="text-blue-400 text-sm font-black">투수</span>
+          <span className="text-gray-600 text-xs">ERA 기준 (규정이닝)</span>
+        </div>
+        <div className="grid grid-cols-5 gap-3">
+          {pitchers.map((p, i) => (
+            <button key={p.player_id} onClick={() => onSelect(p.player_id)}
+              className="bg-gray-800 hover:bg-gray-700 rounded-xl p-4 text-left transition-colors border border-gray-700 hover:border-blue-500/50">
+              <div className="text-lg mb-2">
+  {i < 3 ? MEDALS[i] : <span className="text-white font-black">{i + 1}</span>}
+</div>
+              <p className="text-white text-sm font-black truncate">{p.player_name}</p>
+              <p className="text-gray-500 text-xs mb-3">{p.team_name}</p>
+              <p className="text-blue-400 text-lg font-black">{Number(p.era).toFixed(2)}</p>
+              <p className="text-gray-600 text-xs">ERA</p>
+              <div className="mt-2 pt-2 border-t border-gray-700">
+                <p className="text-gray-400 text-xs">WHIP <span className="text-gray-300 font-bold">{Number(p.whip).toFixed(2)}</span></p>
+                <p className="text-gray-400 text-xs">IP <span className="text-gray-300 font-bold">{p.ip}</span></p>
+              </div>
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function dbToPlayer(p: PlayerDB): Player {
   const ip = (p as any).era !== undefined && (p as any).era !== null && !(p as any).avg;
   return {
@@ -151,24 +223,30 @@ export default function PlayerPage() {
   const ip = raw && (raw as any).era !== undefined && (raw as any).era !== null && !(raw as any).avg;
 
   if (showList && !playerId) return (
-    <div className="min-h-screen bg-gray-900 px-10 py-8">
-      <h1 className="text-white text-3xl font-black mb-2">선수 프로필</h1>
-      <p className="text-gray-400 text-sm mb-6">선수 이름 또는 팀명으로 검색하세요</p>
-      <div className="relative max-w-lg mb-6">
-        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">🔍</span>
-        <input type="text" value={query} onChange={(e) => setQuery(e.target.value)}
-          placeholder="선수 이름 또는 팀명 검색..."
-          className="w-full bg-gray-800 text-white placeholder-gray-500 rounded-lg pl-9 pr-4 py-2.5 text-sm border border-gray-700 focus:outline-none focus:border-orange-400 transition-colors" />
-        {query && <button onClick={() => setQuery('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-600 hover:text-gray-400 text-xs">✕</button>}
-      </div>
-      <div className="max-w-lg space-y-2">
+  <div className="min-h-screen bg-gray-900 px-10 py-8">
+    <h1 className="text-white text-3xl font-black mb-2">선수 프로필</h1>
+    <p className="text-gray-400 text-sm mb-6">선수 이름 또는 팀명으로 검색하세요</p>
+    <div className="relative max-w-lg mb-10">
+      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">🔍</span>
+      <input type="text" value={query} onChange={(e) => setQuery(e.target.value)}
+        placeholder="선수 이름 또는 팀명 검색..."
+        className="w-full bg-gray-800 text-white placeholder-gray-500 rounded-lg pl-9 pr-4 py-2.5 text-sm border border-gray-700 focus:outline-none focus:border-orange-400 transition-colors" />
+      {query && <button onClick={() => setQuery('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-600 hover:text-gray-400 text-xs">✕</button>}
+    </div>
+
+    {/* 검색 결과 */}
+    {query && (
+      <div className="max-w-lg space-y-2 mb-10">
         {listLoading ? <p className="text-gray-500 text-sm text-center py-10 animate-pulse">검색 중...</p>
-          : query && players.length===0 ? <p className="text-gray-500 text-sm text-center py-10">검색 결과가 없습니다</p>
-          : !query ? <p className="text-gray-600 text-sm text-center py-10">선수 이름을 입력해서 검색하세요</p>
+          : players.length===0 ? <p className="text-gray-500 text-sm text-center py-10">검색 결과가 없습니다</p>
           : players.map((p) => <PlayerCard key={p.id} player={p} onClick={(p) => { setShowList(false); loadPlayer(String(p.id)); }} />)}
       </div>
-    </div>
-  );
+    )}
+
+    {/* 이번 시즌 주목 선수 */}
+    {!query && <SpotlightSection onSelect={(id) => { setShowList(false); loadPlayer(id); }} />}
+  </div>
+);
 
   if (loading) return <LoadingSpinner />;
   if (error)   return <ErrorBox onRetry={handleBack} />;
@@ -208,7 +286,7 @@ export default function PlayerPage() {
             {!ip ? (
               <>
                 {[['AVG',Number(raw?.avg??0).toFixed(3)],['OBP',Number(raw?.obp??0).toFixed(3)],['SLG',Number(raw?.slg??0).toFixed(3)],['OPS',Number(raw?.ops??0).toFixed(3)],['wOBA',Number(raw?.woba??0).toFixed(3)]].map(([l,v]) => (
-                  <div key={l} className="text-center"><p className="text-orange-400 text-xl font-black">{v}</p><p className="text-gray-400 text-xs mt-1">{l}</p></div>
+                  <div key={l} className="text-center"><p className="text-orange-400 text-2xl font-black">{v}</p><p className="text-gray-300 text-sm mt-1">{l}</p></div>
                 ))}
                 {(raw as any)?.wrc_plus != null && (
                   <div className="text-center border-l border-gray-700 pl-6">
@@ -219,7 +297,7 @@ export default function PlayerPage() {
               </>
             ) : (
               [['ERA',Number((raw as any)?.era??0).toFixed(2)],['W-L',`${(raw as any)?.w??0}-${(raw as any)?.l??0}`],['IP',(raw as any)?.ip??'0'],['SO',String((raw as any)?.pitcher_so??0)],['WHIP',Number((raw as any)?.whip??0).toFixed(2)]].map(([l,v]) => (
-                <div key={l} className="text-center"><p className="text-orange-400 text-xl font-black">{v}</p><p className="text-gray-400 text-xs mt-1">{l}</p></div>
+                <div key={l} className="text-center"><p className="text-orange-400 text-2xl font-black">{v}</p><p className="text-gray-300 text-sm mt-1">{l}</p></div>
               ))
             )}
           </div>
