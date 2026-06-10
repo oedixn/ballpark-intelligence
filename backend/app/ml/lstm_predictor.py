@@ -5,7 +5,8 @@ from sklearn.preprocessing import MinMaxScaler
 import warnings
 warnings.filterwarnings('ignore')
 
-DB_CONFIG = {"host":"localhost","port":5432,"dbname":"ballpark","user":"ballpark","password":"ballpark1234"}
+import os
+DB_CONFIG = {"host":os.getenv("DB_HOST","localhost"),"port":int(os.getenv("DB_PORT",5432)),"dbname":os.getenv("DB_NAME","ballpark"),"user":os.getenv("DB_USER","ballpark"),"password":os.getenv("DB_PASSWORD","ballpark1234")}
 def get_conn(): return psycopg2.connect(**DB_CONFIG)
 
 HITTER_FEATURES  = ['avg','obp','slg','ops','bb_rate','k_rate','iso','woba']
