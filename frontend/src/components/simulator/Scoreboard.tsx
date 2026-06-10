@@ -37,7 +37,7 @@ export default function Scoreboard({ away, home }: Props) {
             </tr>
           </thead>
           <tbody>
-            {[away, home].map((team, ti) => (
+            {[away, home].map((team, _ti) => (
               <tr key={team.team} style={{ borderTop: '2px solid #1f2937' }}>
                 <td style={{ padding: '10px 12px 10px 0', color: '#fff', fontSize: '8px', whiteSpace: 'nowrap', overflow: 'hidden', maxWidth: '120px', textOverflow: 'ellipsis' }}>
                   {team.team}

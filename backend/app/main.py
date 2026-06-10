@@ -31,7 +31,7 @@ class SafeJSONResponse(JSONResponse):
         return J.dumps(content, ensure_ascii=False, default=default).encode("utf-8")
 
 app = FastAPI(title="BallPark Intelligence API", default_response_class=SafeJSONResponse)
-app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:5173", os.getenv("FRONTEND_URL", "")],
+app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:5173", "https://ballpark-intelligence.vercel.app", os.getenv("FRONTEND_URL", "")],
     allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
 import os
