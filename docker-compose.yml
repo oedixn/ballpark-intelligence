@@ -40,6 +40,11 @@ services:
     environment:
       DATABASE_URL: postgresql://ballpark:ballpark1234@db:5432/ballpark
       REDIS_URL: redis://redis:6379
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_NAME: ballpark
+      DB_USER: ballpark
+      DB_PASSWORD: ballpark1234
     depends_on:
       db:
         condition: service_healthy

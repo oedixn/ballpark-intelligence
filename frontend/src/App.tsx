@@ -11,7 +11,7 @@ import StatsPage from './pages/StatsPage';
 import SchedulePage from './pages/SchedulePage';
 import { useSearchHistory } from './hooks/useSearchHistory';
 
-const api = axios.create({ baseURL: 'http://localhost:8000' });
+const api = axios.create({ baseURL: import.meta.env.VITE_API_URL });
 
 interface SearchPlayer {
   player_id: string;

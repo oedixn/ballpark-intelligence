@@ -12,7 +12,7 @@ import type { Player } from '../data/mockPlayers';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, BarChart, Bar, PieChart, Pie, Cell } from 'recharts';
 
 const MB_COLORS = ['#f97316','#60a5fa','#4ade80','#f87171','#a78bfa'];
-const API = 'http://localhost:8000';
+const API = import.meta.env.VITE_API_URL;
 const TS = { contentStyle:{backgroundColor:'#1f2937',border:'1px solid #374151',borderRadius:'8px'}, labelStyle:{color:'#f97316'}, itemStyle:{color:'#d1d5db'} };
 const LS = { color:'#9ca3af', fontSize:'12px' };
 const POS_COLORS: Record<string,string> = {
@@ -34,9 +34,9 @@ function SpotlightSection({ onSelect }: { onSelect: (id: string) => void }) {
   const [pitchers, setPitchers] = useState<any[]>([]);
 
   useEffect(() => {
-    fetch('http://localhost:8000/api/stats/hitters?sort=woba&limit=5')
+    fetch(import.meta.env.VITE_API_URL + '/api/stats/hitters?sort=woba&limit=5')
       .then(r => r.json()).then(d => setHitters(d.hitters ?? [])).catch(() => {});
-    fetch('http://localhost:8000/api/stats/pitchers?sort=era&limit=5')
+    fetch(import.meta.env.VITE_API_URL + '/api/stats/pitchers?sort=era&limit=5')
       .then(r => r.json()).then(d => setPitchers(d.pitchers ?? [])).catch(() => {});
   }, []);
 

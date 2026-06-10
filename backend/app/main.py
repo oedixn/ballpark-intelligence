@@ -31,10 +31,17 @@ class SafeJSONResponse(JSONResponse):
         return J.dumps(content, ensure_ascii=False, default=default).encode("utf-8")
 
 app = FastAPI(title="BallPark Intelligence API", default_response_class=SafeJSONResponse)
-app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:5173"],
+app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:5173", os.getenv("FRONTEND_URL", "")],
     allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
-DB = {"host":"localhost","port":5432,"dbname":"ballpark","user":"ballpark","password":"ballpark1234"}
+import os
+DB = {
+    "host": os.getenv("DB_HOST", "localhost"),
+    "port": int(os.getenv("DB_PORT", 5432)),
+    "dbname": os.getenv("DB_NAME", "ballpark"),
+    "user": os.getenv("DB_USER", "ballpark"),
+    "password": os.getenv("DB_PASSWORD", "ballpark1234")
+}
 SEASON = 2026
 def conn(): return psycopg2.connect(**DB)
 def cur(c): return c.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
@@ -188,6 +195,11 @@ def simulate_game(req:SimReq):
     tb=[record_to_player_prob(BattingRecord(**p.dict())) for p in req.team_b_lineup]
     g=MatchSimulator(team_a_name=req.team_a_name,team_a_lineup=ta,team_b_name=req.team_b_name,team_b_lineup=tb).simulate_game(innings=req.innings)
     return {"team_a_name":req.team_a_name,"team_b_name":req.team_b_name,"game_log":g,"is_draw":g.final_score[0]==g.final_score[1]}
+
+@app.post("/game")
+def simulate_game_fallback(req: SimReq):
+    """프론트엔드가 /api/simulate/game 대신 /game으로 찌를 때를 위한 우회 경로"""
+    return simulate_game(req)
 
 @app.post("/api/simulate/multi")
 def simulate_multi(req:MultiReq):
@@ -440,7 +452,7 @@ def get_seasons(player_id:int):
             ROUND(CAST(pst.bb AS NUMERIC)/NULLIF(pst.pa,0)*100,1) AS bb_rate,
             ROUND(CAST(pst.so AS NUMERIC)/NULLIF(pst.pa,0)*100,1) AS k_rate,
             ROUND(CAST({WOBA} AS NUMERIC),3) AS woba,
-            ROUND(CAST(((({WOBA})-0.273)/1.157+0.123)/0.123*100) AS NUMERIC),0) AS wrc_plus
+            ROUND(CAST(((({WOBA})-0.273)/1.157+0.123)/0.123*100 AS NUMERIC),0) AS wrc_plus
             FROM player_hitter_stats pst WHERE pst.player_id=%s::varchar AND pst.pa>0 ORDER BY season_year""",(player_id,))
         hr=cr.fetchall()
         cr.execute("SELECT season_year,ps.era,ps.w,ps.l,ps.sv,ps.ip,ps.so AS pitcher_so,ps.bb AS pitcher_bb,ps.whip,ps.g FROM player_pitcher_stats ps WHERE ps.player_id=%s::varchar ORDER BY season_year",(player_id,))
