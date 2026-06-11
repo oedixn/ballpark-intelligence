@@ -100,11 +100,15 @@ export default function MyTeamPage() {
 
   function handleRemove(idx: number) { const next = [...lineup]; next[idx] = null; setLineup(next); }
 
-  function handleDragEnd(event: any) {
-    const { active, over } = event;
-    if (!over || active.id === over.id) return;
-    setLineup((prev) => arrayMove(prev, Number(active.id), Number(over.id)));
+function handleDragEnd(event: any) {
+  const { active, over } = event;
+  if (!over || active.id === over.id) return;
+  const oldIndex = lineup.findIndex((_, i) => i === Number(active.id));
+  const newIndex = lineup.findIndex((_, i) => i === Number(over.id));
+  if (oldIndex !== -1 && newIndex !== -1) {
+    setLineup((prev) => arrayMove(prev, oldIndex, newIndex));
   }
+}
 
   async function handleDeleteRecord(id: number) {
     try { await deleteRecord(id); setRecords((prev) => prev.filter((r) => r.id !== id)); }
@@ -168,7 +172,7 @@ export default function MyTeamPage() {
   const filledPlayers = lineup.filter((p): p is Player => p !== null);
   const filledCount = filledPlayers.length;
   const avgOPS = filledCount > 0
-    ? (filledPlayers.reduce((sum, p) => sum + (p.stats.find(s => s.label === 'OPS')?.value ?? 0), 0) / filledCount).toFixed(3)
+    ? (filledPlayers.reduce((sum, p) => sum + (p?.stats?.find(s => s.label === 'OPS')?.value ?? 0), 0) / filledCount).toFixed(3)
     : '-';
   const wins   = records.filter(r => r.result === '승').length;
   const losses = records.filter(r => r.result === '패').length;
@@ -296,7 +300,7 @@ export default function MyTeamPage() {
                 <div className="absolute top-full left-0 right-0 mt-1 bg-gray-800 border border-gray-700 rounded-xl shadow-2xl overflow-hidden z-50 max-h-64 overflow-y-auto">
                   {results.map((player) => {
                     const alreadyAdded = lineup.some(p => p?.id === player.id);
-                    const ops = player.stats.find(s => s.label === 'OPS');
+                    const ops = player?.stats?.find(s => s.label === 'OPS');
                     return (
                       <button key={player.id} onClick={() => !alreadyAdded && handleSelect(player)} disabled={alreadyAdded}
                         className={`w-full flex items-center justify-between px-4 py-3 text-left border-b border-gray-700 last:border-0 transition-colors ${alreadyAdded ? 'opacity-40 cursor-not-allowed' : 'hover:bg-gray-700 cursor-pointer'}`}>
@@ -337,7 +341,7 @@ export default function MyTeamPage() {
           <div>
             <p className="text-gray-500 text-xs mb-3 uppercase tracking-widest font-bold">⚡ 타순 배치</p>
             <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-              <SortableContext items={lineup.map((_, i) => i)} strategy={verticalListSortingStrategy}>
+              <SortableContext items={lineup.map((_, i) => i).filter(i => lineup[i] !== null)} strategy={verticalListSortingStrategy}>
                 <div className="space-y-2">
                   {lineup.map((player, idx) =>
                     player ? (

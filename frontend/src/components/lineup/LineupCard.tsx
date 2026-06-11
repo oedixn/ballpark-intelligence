@@ -9,7 +9,7 @@ interface Props {
 
 export default function LineupCard({ player, order }: Props) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
-    useSortable({ id: player.id });
+    useSortable({ id: order - 1 });
 
   const style = {
     transform: CSS.Transform.toString(transform),
