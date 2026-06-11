@@ -16,27 +16,71 @@
 
 실행 예시:
     python lineup_markov_montecarlo.py
+    
+현재 버전 반영 사항:
+- backend/db/output_db_ready CSV 폴더 기반 데이터 로딩
+- 타자는 투수 제외, 포지션별 대표 8명 + 지명타자 1명으로 구성
+- 뽑힌 9명의 타순은 PA(타석 수) 내림차순으로 정렬
+- 팀 선택 후 해당 팀의 선발투수 후보 중 1명 선택
+- 상대 선발투수의 피이벤트 성향으로 타자 이벤트 확률 보정
+- 실제 경기 로그 시뮬레이션은 최대 12이닝으로 제한
 """
 
 from __future__ import annotations
+
 from dataclasses import dataclass
 from itertools import permutations
-from typing import Dict, List, Tuple
+from pathlib import Path
+from typing import Dict, List, Sequence, Tuple
+import csv
 import math
 import random
 
-# ── KBO 리그 평균 & 베이지안 스무딩 상수 (2025 시즌 기준) ──────────────
-LEAGUE_AVG = {
-    "bb":     0.085,
-    "single": 0.150,
-    "double": 0.040,
-    "triple": 0.004,
-    "hr":     0.028,
-}
-SMOOTHING_K = 200
+
+# -----------------------------------------------------------------------------
+# 기본 설정
+# -----------------------------------------------------------------------------
+
+REGULATION_INNINGS = 9
+MAX_GAME_INNINGS = 12
+PITCHER_ADJUSTMENT_WEIGHT = 0.5
+
+FIELDING_POSITIONS = [
+    "포수",
+    "1루수",
+    "2루수",
+    "3루수",
+    "유격수",
+    "좌익수",
+    "중견수",
+    "우익수",
+]
+DESIGNATED_HITTER_POSITION = "지명타자"
+
+# 현재 프로젝트 구조 기준:
+# BALLPARK-INTELLIGENCE/
+# └─ backend/
+#    ├─ db/
+#    │  └─ output_db_ready/*.csv
+#    └─ game_simulator/
+#       └─ simulator_main.py
+BACKEND_DIR = Path(__file__).resolve().parents[1]
+DB_DIR = BACKEND_DIR / "db"
+OUTPUT_DB_READY_DIR = DB_DIR / "output_db_ready"
+
+HITTER_STATS_CSV_PATH = OUTPUT_DB_READY_DIR / "player_hitter_stats.csv"
+DEFENSE_STATS_CSV_PATH = OUTPUT_DB_READY_DIR / "player_defense_stats.csv"
+PITCHER_STATS_CSV_PATH = OUTPUT_DB_READY_DIR / "player_pitcher_stats.csv"
+TEAM_PITCHER_STATS_CSV_PATH = OUTPUT_DB_READY_DIR / "team_pitcher_stats.csv"
+
+
+# -----------------------------------------------------------------------------
+# 데이터 구조
+# -----------------------------------------------------------------------------
 
 @dataclass(frozen=True)
 class PlayerProb: #선수 1명의 확률 정보를 담는 클래스
+
     name: str
     bb: float
     single: float
@@ -44,6 +88,7 @@ class PlayerProb: #선수 1명의 확률 정보를 담는 클래스
     triple: float
     hr: float
     out: float | None = None
+    position: str | None = None
 
     def normalized(self) -> "PlayerProb":
         probs = {
@@ -53,10 +98,7 @@ class PlayerProb: #선수 1명의 확률 정보를 담는 클래스
             "triple": self.triple,
             "hr": self.hr,
         }
-        if self.out is None:
-            out = 1.0 - sum(probs.values())
-        else:
-            out = self.out
+        out = 1.0 - sum(probs.values()) if self.out is None else self.out
 
         if out < 0:
             raise ValueError(f"{self.name}: 확률 합이 1을 초과합니다.")
@@ -73,6 +115,7 @@ class PlayerProb: #선수 1명의 확률 정보를 담는 클래스
             triple=probs["triple"] / total,
             hr=probs["hr"] / total,
             out=out / total,
+            position=self.position,
         )
 
     def event_probs(self) -> List[Tuple[str, float]]:
@@ -86,80 +129,180 @@ class PlayerProb: #선수 1명의 확률 정보를 담는 클래스
             ("OUT", p.out if p.out is not None else 0.0),
         ]
 
+
 @dataclass(frozen=True)
-class BattingRecord: #실제 선수 타격 기록을 담는 클래스
-    """
-    실제 선수 타격 기록을 담는 클래스
+class PitcherProb:
+    """투수 1명의 피이벤트 확률."""
 
-    이 기록을 바탕으로
-    BB, 1B, 2B, 3B, HR, OUT 확률을 계산한다.
-    """
+    name: str
+    team_name: str
+    bb: float
+    single: float
+    double: float
+    triple: float
+    hr: float
+    out: float
+    gs: int = 0
+    g: int = 0
+    ip: float = 0.0
+    era: float = 0.0
+    tbf: int = 0
 
-    name: str       # 선수 이름
-    ab: int         # 타수
-    hits: int       # 안타
-    double: int     # 2루타
-    triple: int     # 3루타
-    hr: int         # 홈런
-    bb: int         # 볼넷
-    hbp: int = 0    # 사구, 기본값 0
+    def normalized(self) -> "PitcherProb":
+        total = self.bb + self.single + self.double + self.triple + self.hr + self.out
+        if total <= 0:
+            raise ValueError(f"{self.name}: 유효한 투수 확률이 아닙니다.")
+        return PitcherProb(
+            name=self.name,
+            team_name=self.team_name,
+            bb=self.bb / total,
+            single=self.single / total,
+            double=self.double / total,
+            triple=self.triple / total,
+            hr=self.hr / total,
+            out=self.out / total,
+            gs=self.gs,
+            g=self.g,
+            ip=self.ip,
+            era=self.era,
+            tbf=self.tbf,
+        )
+
+
+@dataclass(frozen=True)
+class LeagueAverageProb:
+    """리그 평균 이벤트 확률."""
+
+    bb: float
+    single: float
+    double: float
+    triple: float
+    hr: float
+    out: float
+
+
+@dataclass(frozen=True)
+class BattingRecord:
+    """실제 선수 타격 기록."""
+
+    name: str
+    ab: int
+    hits: int
+    double: int
+    triple: int
+    hr: int
+    bb: int
+    hbp: int = 0
+    position: str | None = None
 
 
 @dataclass
-class PlateAppearanceLog: #한 타석에 대한 정보를 저장하는 클래스
-    """
-    즉, 경기의 가장 작은 단위 로그
-    (타자 한 명이 결과를 낼 때마다 1개 생성됨)
-    """
+class PlateAppearanceLog:
+    inning: int
+    half: str
+    batter_order: int
+    batter_name: str
+    event: str
+    runs_scored: int
+    outs_after: int
+    bases_after: str
 
-    inning: int          # 몇 회인지 (1~9)
-    half: str            # "초" 또는 "말" (공격 팀 구분)
-    
-    batter_order: int    # 타순 (1번~9번)
-    batter_name: str     # 타자 이름
-
-    event: str           # 결과 (BB, 1B, 2B, 3B, HR, OUT)
-    
-    runs_scored: int     # 이 타석에서 발생한 득점 수
-    
-    outs_after: int      # 이 타석 이후 아웃카운트 (0~3)
-    
-    bases_after: str     # 이 타석 이후 주자 상태 (예: "1루, 2루")
 
 @dataclass
-class HalfInningLog: #반 이닝(1회초, 1회말 등) 전체 결과를 저장하는 클래스
-    
-    inning: int                      # 몇 회인지
-    half: str                        # "초" or "말"
-    
-    team_name: str                   # 공격 팀 이름
-    
-    runs: int                        # 해당 이닝에서 득점한 총 점수
-    
+class HalfInningLog:
+    inning: int
+    half: str
+    team_name: str
+    runs: int
     plate_appearances: List[PlateAppearanceLog]
-    # 이 이닝 동안 발생한 모든 타석 로그
+
 
 @dataclass
-class GameLog: #한 경기 전체 결과를 저장하는 클래스
-    
-    #모든 이닝 로그를 포함
-
-    team_a: str                    # A팀 이름
-    team_b: str                    # B팀 이름
-
-    final_score: Tuple[int, int]   # (A팀 점수, B팀 점수)
-
-    innings: List[HalfInningLog]   # 모든 이닝 로그 (1회초 ~ 9회말)
+class GameLog:
+    team_a: str
+    team_b: str
+    final_score: Tuple[int, int]
+    innings: List[HalfInningLog]
 
 
+# -----------------------------------------------------------------------------
+# 공통 변환 함수
+# -----------------------------------------------------------------------------
+
+def _read_csv(csv_path: Path) -> List[Dict[str, str]]:
+    if not csv_path.exists():
+        raise FileNotFoundError(
+            f"CSV 파일을 찾지 못했습니다: {csv_path}\n"
+            "예상 구조: BALLPARK-INTELLIGENCE/backend/db/output_db_ready/*.csv"
+        )
+    with csv_path.open("r", encoding="utf-8-sig", newline="") as f:
+        return list(csv.DictReader(f))
+
+
+def _to_int(value: str | None, default: int = 0) -> int:
+    if value is None or str(value).strip() == "":
+        return default
+    return int(float(str(value).strip()))
+
+
+def _to_float(value: str | None, default: float = 0.0) -> float:
+    """일반 숫자와 KBO 이닝 표기('145 2/3')를 모두 float로 변환한다."""
+
+    if value is None:
+        return default
+
+    text = str(value).strip()
+    if text == "":
+        return default
+
+    if " " in text and "/" in text:
+        whole, fraction = text.split(" ", 1)
+        numerator, denominator = fraction.split("/", 1)
+        return float(whole) + float(numerator) / float(denominator)
+
+    if "/" in text:
+        numerator, denominator = text.split("/", 1)
+        return float(numerator) / float(denominator)
+
+    return float(text)
+
+
+def _latest_season(rows: Sequence[Dict[str, str]]) -> int:
+    seasons = [int(row["season_year"]) for row in rows if row.get("season_year")]
+    if not seasons:
+        raise ValueError("시즌 정보가 없습니다.")
+    return max(seasons)
+
+
+def available_teams(hitter_stats_csv_path: Path = HITTER_STATS_CSV_PATH) -> List[str]:
+    rows = _read_csv(hitter_stats_csv_path)
+    return sorted({row["team_name"] for row in rows if row.get("team_name")})
+
+
+def available_seasons(hitter_stats_csv_path: Path = HITTER_STATS_CSV_PATH) -> List[int]:
+    rows = _read_csv(hitter_stats_csv_path)
+    return sorted({int(row["season_year"]) for row in rows if row.get("season_year")})
+
+
+# -----------------------------------------------------------------------------
+# 타자 확률 계산
+# -----------------------------------------------------------------------------
 
 def record_to_player_prob(record: BattingRecord) -> PlayerProb:
     """
-    선수의 실제 타격 기록을 PlayerProb 확률 구조로 변환
-    베이지안 스무딩 적용:
-      smoothed = (관측값 * PA + 리그평균 * K) / (PA + K)
-    PA가 적을수록 리그 평균 쪽으로 당겨짐
+    선수의 실제 타격 기록을 PlayerProb 확률 구조로 변환한다.
+
+    계산 방식:
+    - BB 확률 = (볼넷 + 사구) / PA
+    - 1B 확률 = 단타 / PA
+    - 2B 확률 = 2루타 / PA
+    - 3B 확률 = 3루타 / PA
+    - HR 확률 = 홈런 / PA
+    - OUT 확률 = 나머지
+
+    현재 모델에서는 PA를 단순화해서 AB + BB + HBP로 계산한다.
     """
+
     pa = record.ab + record.bb + record.hbp
     if pa <= 0:
         raise ValueError(f"{record.name}: 유효한 타석 수가 없습니다.")
@@ -168,20 +311,11 @@ def record_to_player_prob(record: BattingRecord) -> PlayerProb:
     if single < 0:
         raise ValueError(f"{record.name}: 안타 세부 기록이 잘못되었습니다.")
 
-    obs_bb     = (record.bb + record.hbp) / pa
-    obs_single = single / pa
-    obs_double = record.double / pa
-    obs_triple = record.triple / pa
-    obs_hr     = record.hr / pa
-
-    w = pa / (pa + SMOOTHING_K)
-
-    bb_prob     = w * obs_bb     + (1 - w) * LEAGUE_AVG["bb"]
-    single_prob = w * obs_single + (1 - w) * LEAGUE_AVG["single"]
-    double_prob = w * obs_double + (1 - w) * LEAGUE_AVG["double"]
-    triple_prob = w * obs_triple + (1 - w) * LEAGUE_AVG["triple"]
-    hr_prob     = w * obs_hr     + (1 - w) * LEAGUE_AVG["hr"]
-
+    bb_prob = (record.bb + record.hbp) / pa
+    single_prob = single / pa
+    double_prob = record.double / pa
+    triple_prob = record.triple / pa
+    hr_prob = record.hr / pa
     out_prob = 1.0 - (bb_prob + single_prob + double_prob + triple_prob + hr_prob)
 
     return PlayerProb(
@@ -192,16 +326,389 @@ def record_to_player_prob(record: BattingRecord) -> PlayerProb:
         triple=triple_prob,
         hr=hr_prob,
         out=out_prob,
+        position=record.position,
     ).normalized()
 
-def apply_event(base_mask: int, outs: int, event: str) -> Tuple[int, int, int]: #한 타석 결과가 상태를 어떻게 바꾸는지 계산
+
+def _row_key_for_batting(row: Dict[str, str]) -> Tuple[int, int]:
+    return (_to_int(row.get("pa")), _to_int(row.get("ab")))
+
+
+def _row_key_for_defense(row: Dict[str, str], hitter_by_id: Dict[str, Dict[str, str]]) -> Tuple[int, int, float, int, int]:
+    hitter_row = hitter_by_id.get(row.get("player_id", ""), {})
+    return (
+        _to_int(row.get("gs")),
+        _to_int(row.get("g")),
+        _to_float(row.get("ip")),
+        _to_int(hitter_row.get("pa")),
+        _to_int(hitter_row.get("ab")),
+    )
+
+
+def _select_position_based_lineup(
+    hitter_rows: List[Dict[str, str]],
+    defense_rows: List[Dict[str, str]],
+    lineup_size: int = 9,
+) -> List[Dict[str, str]]:
+    """
+    수비 포지션 8명 + 지명타자 1명을 고른 뒤,
+    최종 타순은 PA 내림차순으로 정렬한다.
+    """
+
+    hitter_by_id = {row["player_id"]: row for row in hitter_rows if row.get("player_id")}
+    selected: List[Dict[str, str]] = []
+    selected_ids: set[str] = set()
+
+    for position in FIELDING_POSITIONS:
+        position_candidates = [
+            row
+            for row in defense_rows
+            if row.get("position") == position
+            and row.get("player_id") in hitter_by_id
+            and row.get("player_id") not in selected_ids
+        ]
+
+        if not position_candidates:
+            raise ValueError(f"{position} 후보를 찾지 못했습니다.")
+
+        best_defense = max(position_candidates, key=lambda row: _row_key_for_defense(row, hitter_by_id))
+        hitter_row = dict(hitter_by_id[best_defense["player_id"]])
+        hitter_row["selected_position"] = position
+        selected.append(hitter_row)
+        selected_ids.add(best_defense["player_id"])
+
+    dh_candidates = [
+        row
+        for row in hitter_rows
+        if row.get("player_id") not in selected_ids
+    ]
+    if not dh_candidates:
+        raise ValueError("지명타자 후보를 찾지 못했습니다.")
+
+    dh_row = dict(max(dh_candidates, key=_row_key_for_batting))
+    dh_row["selected_position"] = DESIGNATED_HITTER_POSITION
+    selected.append(dh_row)
+
+    if len(selected) != lineup_size:
+        raise ValueError(f"라인업은 {lineup_size}명이 필요하지만 {len(selected)}명만 선택되었습니다.")
+
+    # 선수는 포지션별로 뽑되, 실제 타순은 PA가 많은 순서로 둔다.
+    selected.sort(key=_row_key_for_batting, reverse=True)
+    return selected
+
+
+def load_team_batting_records(
+    team_name: str,
+    season_year: int | None = None,
+    hitter_stats_csv_path: Path = HITTER_STATS_CSV_PATH,
+    defense_stats_csv_path: Path = DEFENSE_STATS_CSV_PATH,
+    min_pa: int = 1,
+    player_names: Sequence[str] | None = None,
+    lineup_size: int = 9,
+    use_position_lineup: bool = True,
+) -> List[BattingRecord]:
+    """
+    DB 폴더의 타자 CSV에서 특정 팀의 BattingRecord 목록을 가져온다.
+
+    기본 방식:
+    - 포지션별 대표 선수 8명 + 지명타자 1명 선정
+    - 최종 타순은 PA 순으로 정렬
+
+    player_names가 주어지면 해당 순서를 그대로 사용한다.
+    """
+
+    hitter_rows_all = _read_csv(hitter_stats_csv_path)
+    defense_rows_all = _read_csv(defense_stats_csv_path) if use_position_lineup else []
+
+    if season_year is None:
+        season_year = _latest_season(hitter_rows_all)
+
+    hitter_rows = [
+        row
+        for row in hitter_rows_all
+        if row.get("team_name") == team_name
+        and int(row.get("season_year", 0)) == season_year
+        and _to_int(row.get("pa")) >= min_pa
+    ]
+
+    if not hitter_rows:
+        teams = ", ".join(available_teams(hitter_stats_csv_path))
+        seasons = ", ".join(map(str, available_seasons(hitter_stats_csv_path)))
+        raise ValueError(
+            f"{season_year}시즌 {team_name} 타자 기록을 찾지 못했습니다. "
+            f"사용 가능한 시즌: {seasons} / 팀: {teams}"
+        )
+
+    if player_names is not None:
+        by_name = {row["player_name"]: row for row in hitter_rows}
+        missing = [name for name in player_names if name not in by_name]
+        if missing:
+            raise ValueError(f"{season_year}시즌 {team_name}에서 찾지 못한 선수: {', '.join(missing)}")
+        selected = [dict(by_name[name]) for name in player_names]
+        for row in selected:
+            row["selected_position"] = row.get("selected_position") or "수동선택"
+    elif use_position_lineup:
+        defense_rows = [
+            row
+            for row in defense_rows_all
+            if row.get("team_name") == team_name
+            and int(row.get("season_year", 0)) == season_year
+        ]
+        selected = _select_position_based_lineup(hitter_rows, defense_rows, lineup_size=lineup_size)
+    else:
+        selected = sorted(hitter_rows, key=_row_key_for_batting, reverse=True)[:lineup_size]
+        for row in selected:
+            row["selected_position"] = None
+
+    if len(selected) != lineup_size:
+        raise ValueError(f"라인업은 {lineup_size}명이 필요하지만 {len(selected)}명만 선택되었습니다.")
+
+    return [
+        BattingRecord(
+            name=row["player_name"],
+            ab=_to_int(row.get("ab")),
+            hits=_to_int(row.get("h")),
+            double=_to_int(row.get("double_hit")),
+            triple=_to_int(row.get("triple_hit")),
+            hr=_to_int(row.get("hr")),
+            bb=_to_int(row.get("bb")),
+            hbp=_to_int(row.get("hbp")),
+            position=row.get("selected_position") or None,
+        )
+        for row in selected
+    ]
+
+
+def load_team_players_from_db(
+    team_name: str,
+    season_year: int | None = None,
+    hitter_stats_csv_path: Path = HITTER_STATS_CSV_PATH,
+    defense_stats_csv_path: Path = DEFENSE_STATS_CSV_PATH,
+    min_pa: int = 1,
+    player_names: Sequence[str] | None = None,
+    use_position_lineup: bool = True,
+) -> List[PlayerProb]:
+    records = load_team_batting_records(
+        team_name=team_name,
+        season_year=season_year,
+        hitter_stats_csv_path=hitter_stats_csv_path,
+        defense_stats_csv_path=defense_stats_csv_path,
+        min_pa=min_pa,
+        player_names=player_names,
+        lineup_size=9,
+        use_position_lineup=use_position_lineup,
+    )
+    return [record_to_player_prob(record) for record in records]
+
+
+# -----------------------------------------------------------------------------
+# 투수 로딩 및 투수 보정
+# -----------------------------------------------------------------------------
+
+def _pitcher_row_to_prob(row: Dict[str, str]) -> PitcherProb:
+    tbf = _to_int(row.get("tbf"))
+    if tbf <= 0:
+        raise ValueError(f"{row.get('player_name', '알 수 없음')}: TBF가 0 이하입니다.")
+
+    hits = _to_int(row.get("h"))
+    double = _to_int(row.get("double_hit"))
+    triple = _to_int(row.get("triple_hit"))
+    hr = _to_int(row.get("hr"))
+    bb = _to_int(row.get("bb"))
+    hbp = _to_int(row.get("hbp"))
+
+    single = max(0, hits - double - triple - hr)
+    bb_prob = (bb + hbp) / tbf
+    single_prob = single / tbf
+    double_prob = double / tbf
+    triple_prob = triple / tbf
+    hr_prob = hr / tbf
+    out_prob = max(0.0, 1.0 - (bb_prob + single_prob + double_prob + triple_prob + hr_prob))
+
+    return PitcherProb(
+        name=row["player_name"],
+        team_name=row["team_name"],
+        bb=bb_prob,
+        single=single_prob,
+        double=double_prob,
+        triple=triple_prob,
+        hr=hr_prob,
+        out=out_prob,
+        gs=_to_int(row.get("gs")),
+        g=_to_int(row.get("g")),
+        ip=_to_float(row.get("ip")),
+        era=_to_float(row.get("era")),
+        tbf=tbf,
+    ).normalized()
+
+
+def load_starting_pitcher_candidates(
+    team_name: str,
+    season_year: int | None = None,
+    pitcher_stats_csv_path: Path = PITCHER_STATS_CSV_PATH,
+) -> List[PitcherProb]:
+    rows = _read_csv(pitcher_stats_csv_path)
+    if season_year is None:
+        season_year = _latest_season(rows)
+
+    candidates = [
+        row
+        for row in rows
+        if row.get("team_name") == team_name
+        and int(row.get("season_year", 0)) == season_year
+        and _to_int(row.get("gs")) > 0
+        and _to_int(row.get("tbf")) > 0
+    ]
+
+    if not candidates:
+        raise ValueError(f"{season_year}시즌 {team_name} 선발투수 후보를 찾지 못했습니다.")
+
+    candidates.sort(
+        key=lambda row: (_to_int(row.get("gs")), _to_float(row.get("ip")), _to_int(row.get("tbf"))),
+        reverse=True,
+    )
+    return [_pitcher_row_to_prob(row) for row in candidates]
+
+
+def choose_starting_pitcher(
+    team_name: str,
+    season_year: int | None = None,
+    pitcher_stats_csv_path: Path = PITCHER_STATS_CSV_PATH,
+) -> PitcherProb:
+    candidates = load_starting_pitcher_candidates(
+        team_name=team_name,
+        season_year=season_year,
+        pitcher_stats_csv_path=pitcher_stats_csv_path,
+    )
+
+    print(f"\n[{team_name} 선발투수 선택]")
+    print("번호를 입력하세요. 엔터를 누르면 선발 등판 수가 가장 많은 투수를 사용합니다.")
+
+    for idx, pitcher in enumerate(candidates, start=1):
+        print(
+            f"{idx}. {pitcher.name} / GS {pitcher.gs} / G {pitcher.g} "
+            f"/ IP {pitcher.ip:.1f} / ERA {pitcher.era:.2f} / TBF {pitcher.tbf}"
+        )
+
+    selected = input("선발투수 번호 [기본값: 1]: ").strip()
+    if selected == "":
+        return candidates[0]
+
+    try:
+        index = int(selected)
+    except ValueError as exc:
+        raise ValueError("선발투수 번호는 숫자로 입력해야 합니다.") from exc
+
+    if index < 1 or index > len(candidates):
+        raise ValueError(f"선발투수 번호는 1~{len(candidates)} 사이여야 합니다.")
+
+    return candidates[index - 1]
+
+
+def load_league_average_prob_from_db(
+    season_year: int | None = None,
+    team_pitcher_stats_csv_path: Path = TEAM_PITCHER_STATS_CSV_PATH,
+) -> LeagueAverageProb:
+    rows = _read_csv(team_pitcher_stats_csv_path)
+    if season_year is None:
+        season_year = _latest_season(rows)
+
+    season_rows = [row for row in rows if int(row.get("season_year", 0)) == season_year]
+    if not season_rows:
+        raise ValueError(f"{season_year}시즌 팀 투수 기록을 찾지 못했습니다.")
+
+    tbf = sum(_to_int(row.get("tbf")) for row in season_rows)
+    if tbf <= 0:
+        raise ValueError("리그 평균 계산에 필요한 TBF가 없습니다.")
+
+    hits = sum(_to_int(row.get("h")) for row in season_rows)
+    double = sum(_to_int(row.get("double_hit")) for row in season_rows)
+    triple = sum(_to_int(row.get("triple_hit")) for row in season_rows)
+    hr = sum(_to_int(row.get("hr")) for row in season_rows)
+    bb = sum(_to_int(row.get("bb")) for row in season_rows)
+    hbp = sum(_to_int(row.get("hbp")) for row in season_rows)
+
+    single = max(0, hits - double - triple - hr)
+
+    bb_prob = (bb + hbp) / tbf
+    single_prob = single / tbf
+    double_prob = double / tbf
+    triple_prob = triple / tbf
+    hr_prob = hr / tbf
+    out_prob = max(0.0, 1.0 - (bb_prob + single_prob + double_prob + triple_prob + hr_prob))
+
+    return LeagueAverageProb(
+        bb=bb_prob,
+        single=single_prob,
+        double=double_prob,
+        triple=triple_prob,
+        hr=hr_prob,
+        out=out_prob,
+    )
+
+
+def adjust_player_prob_by_pitcher(
+    batter: PlayerProb,
+    pitcher: PitcherProb,
+    league_avg: LeagueAverageProb,
+    pitcher_weight: float = PITCHER_ADJUSTMENT_WEIGHT,
+) -> PlayerProb:
+    """
+    타자 이벤트 확률을 상대 투수의 리그 평균 대비 허용 성향으로 보정한다.
+
+    보정 계수 = 1 + pitcher_weight * (투수 허용률 / 리그 평균 허용률 - 1)
+    """
+
+    b = batter.normalized()
+    p = pitcher.normalized()
+
+    def ratio(pitcher_value: float, league_value: float) -> float:
+        if league_value <= 0:
+            return 1.0
+        value = 1.0 + pitcher_weight * ((pitcher_value / league_value) - 1.0)
+        return max(0.05, value)
+
+    adjusted = PlayerProb(
+        name=b.name,
+        bb=b.bb * ratio(p.bb, league_avg.bb),
+        single=b.single * ratio(p.single, league_avg.single),
+        double=b.double * ratio(p.double, league_avg.double),
+        triple=b.triple * ratio(p.triple, league_avg.triple),
+        hr=b.hr * ratio(p.hr, league_avg.hr),
+        out=(b.out or 0.0) * ratio(p.out, league_avg.out),
+        position=b.position,
+    )
+    return adjusted.normalized()
+
+
+def adjust_lineup_by_pitcher(
+    lineup: List[PlayerProb],
+    opposing_pitcher: PitcherProb,
+    league_avg: LeagueAverageProb,
+    pitcher_weight: float = PITCHER_ADJUSTMENT_WEIGHT,
+) -> List[PlayerProb]:
+    return [
+        adjust_player_prob_by_pitcher(
+            batter=player,
+            pitcher=opposing_pitcher,
+            league_avg=league_avg,
+            pitcher_weight=pitcher_weight,
+        )
+        for player in lineup
+    ]
+
+
+# -----------------------------------------------------------------------------
+# 경기 상태 전이
+# -----------------------------------------------------------------------------
+
+def apply_event(base_mask: int, outs: int, event: str) -> Tuple[int, int, int]:
     if outs >= 3:
         return 0, 3, 0
 
     on1 = 1 if (base_mask & 1) else 0
     on2 = 1 if (base_mask & 2) else 0
     on3 = 1 if (base_mask & 4) else 0
-
     runs = 0
 
     if event == "OUT":
@@ -248,30 +755,23 @@ def apply_event(base_mask: int, outs: int, event: str) -> Tuple[int, int, int]: 
 
     raise ValueError(f"알 수 없는 이벤트: {event}")
 
-def format_bases(base_mask: int) -> str: #상태 출력용 함수
-    """
-    base_mask를 사람이 읽을 수 있는 문자열로 변환
-    비트마스크 구조:
-        1루: 1 (001)
-        2루: 2 (010)
-        3루: 4 (100)
-    """
-    bases = []
 
-    # 각 비트를 검사해서 주자가 있는지 확인
+def format_bases(base_mask: int) -> str:
+    bases = []
     if base_mask & 1:
         bases.append("1루")
     if base_mask & 2:
         bases.append("2루")
     if base_mask & 4:
         bases.append("3루")
-
-    # 아무 주자도 없으면 "주자 없음"
     return ", ".join(bases) if bases else "주자 없음"
 
 
+# -----------------------------------------------------------------------------
+# Markov / Monte Carlo / Match Simulator
+# -----------------------------------------------------------------------------
 
-class LineupMarkovModel: #마르코프 체인 방식으로 기대 득점 계산
+class LineupMarkovModel:
     def __init__(self, lineup: List[PlayerProb], max_runs: int = 25) -> None:
         if len(lineup) != 9:
             raise ValueError("라인업은 9명이어야 합니다.")
@@ -330,7 +830,7 @@ class LineupMarkovModel: #마르코프 체인 방식으로 기대 득점 계산
         next_batter_dist = [x / total for x in next_batter_dist]
         return run_dist, next_batter_dist
 
-    def game_run_distribution(self, innings: int = 9) -> List[float]:
+    def game_run_distribution(self, innings: int = REGULATION_INNINGS) -> List[float]:
         overall: Dict[Tuple[int, int], float] = {(0, 0): 1.0}
 
         for _inning in range(innings):
@@ -361,11 +861,12 @@ class LineupMarkovModel: #마르코프 체인 방식으로 기대 득점 계산
     def expected_runs(run_distribution: List[float]) -> float:
         return sum(i * p for i, p in enumerate(run_distribution))
 
-    def expected_runs_per_game(self, innings: int = 9) -> float:
+    def expected_runs_per_game(self, innings: int = REGULATION_INNINGS) -> float:
         dist = self.game_run_distribution(innings=innings)
         return self.expected_runs(dist)
 
-class LineupMonteCarloSimulator: #몬테카를로 방식으로 경기 반복 시뮬레이션
+
+class LineupMonteCarloSimulator:
     def __init__(self, lineup: List[PlayerProb], seed: int | None = None) -> None:
         if len(lineup) != 9:
             raise ValueError("라인업은 9명이어야 합니다.")
@@ -381,7 +882,7 @@ class LineupMonteCarloSimulator: #몬테카를로 방식으로 경기 반복 시
                 return event
         return "OUT"
 
-    def simulate_game(self, innings: int = 9) -> int:
+    def simulate_game(self, innings: int = REGULATION_INNINGS) -> int:
         score = 0
         batter_idx = 0
 
@@ -396,7 +897,7 @@ class LineupMonteCarloSimulator: #몬테카를로 방식으로 경기 반복 시
                 batter_idx = (batter_idx + 1) % 9
         return score
 
-    def simulate_many(self, n_games: int = 10000, innings: int = 9) -> Dict[str, object]:
+    def simulate_many(self, n_games: int = 10000, innings: int = REGULATION_INNINGS) -> Dict[str, object]:
         scores = [self.simulate_game(innings=innings) for _ in range(n_games)]
         mean_score = sum(scores) / len(scores)
         var = sum((x - mean_score) ** 2 for x in scores) / len(scores)
@@ -415,11 +916,9 @@ class LineupMonteCarloSimulator: #몬테카를로 방식으로 경기 반복 시
             "prob_5_or_more_runs": prob_5_or_more,
         }
 
-class MatchSimulator:#두 팀의 경기를 시뮬레이션하는 클래스
-    """
-    기존 Markov 모델의 상태 전이 규칙(apply_event)을 그대로 사용하면서
-    실제 경기처럼 타석 단위로 진행되는 로그를 생성
-    """
+
+class MatchSimulator:
+    """두 팀의 경기를 실제 경기 흐름처럼 타석 단위로 시뮬레이션한다."""
 
     def __init__(
         self,
@@ -429,37 +928,19 @@ class MatchSimulator:#두 팀의 경기를 시뮬레이션하는 클래스
         team_b_lineup: List[PlayerProb],
         seed: int | None = None,
     ) -> None:
-
-        # 팀 이름 저장
         self.team_a_name = team_a_name
         self.team_b_name = team_b_name
-
-        # 선수 확률을 정규화해서 저장
         self.team_a_lineup = [p.normalized() for p in team_a_lineup]
         self.team_b_lineup = [p.normalized() for p in team_b_lineup]
-
-        # 랜덤 시드 (재현 가능한 결과를 위해)
         self.rng = random.Random(seed)
 
-    def sample_event(self, player: PlayerProb) -> str: #이벤트 샘플링 함수
-        """
-        한 타자의 결과를 확률적으로 샘플링
-
-        예:
-        BB 0.1, 1B 0.2, OUT 0.7 이면
-        누적 확률 기반으로 랜덤 선택
-        """
-
-        x = self.rng.random()  # 0~1 사이 랜덤값
+    def sample_event(self, player: PlayerProb) -> str:
+        x = self.rng.random()
         cumulative = 0.0
-
-        # 이벤트를 하나씩 누적하면서 랜덤값과 비교
         for event, p in player.event_probs():
             cumulative += p
             if x <= cumulative:
                 return event
-
-        # 안전장치 (이론적으로 거의 안옴)
         return "OUT"
 
     def simulate_half_inning(
@@ -471,36 +952,19 @@ class MatchSimulator:#두 팀의 경기를 시뮬레이션하는 클래스
         start_batter_idx: int,
         walkoff_target: int | None = None,
     ) -> Tuple[HalfInningLog, int, bool]:
-        """
-        한 이닝(초 or 말)을 시뮬레이션
-
-        walkoff_target:
-        - None이면 일반 이닝
-        - 숫자가 들어오면 해당 점수에 도달하는 순간 공격 종료
-        - 예: 원정팀이 4점이면 홈팀은 5점 도달 순간 끝내기 승리
-        """
-
         outs = 0
         base_mask = 0
         runs = 0
         batter_idx = start_batter_idx
         is_walkoff = False
-
         plate_logs: List[PlateAppearanceLog] = []
 
         while outs < 3:
             player = lineup[batter_idx]
-
-            # 1. 타석 결과 샘플링
             event = self.sample_event(player)
-
-            # 2. 상태 전이
             new_base_mask, new_outs, scored = apply_event(base_mask, outs, event)
-
-            # 3. 득점 누적
             runs += scored
 
-            # 4. 로그 기록
             plate_logs.append(
                 PlateAppearanceLog(
                     inning=inning,
@@ -514,14 +978,10 @@ class MatchSimulator:#두 팀의 경기를 시뮬레이션하는 클래스
                 )
             )
 
-            # 5. 상태 업데이트
             base_mask = new_base_mask
             outs = new_outs
-
-            # 6. 다음 타자
             batter_idx = (batter_idx + 1) % 9
 
-            # 7. 끝내기 조건 확인
             if walkoff_target is not None and runs >= walkoff_target:
                 is_walkoff = True
                 break
@@ -533,32 +993,33 @@ class MatchSimulator:#두 팀의 경기를 시뮬레이션하는 클래스
             runs=runs,
             plate_appearances=plate_logs,
         )
-
         return half_log, batter_idx, is_walkoff
 
-    def simulate_game(self, innings: int = 9) -> GameLog:
+    def simulate_game(
+        self,
+        innings: int = REGULATION_INNINGS,
+        max_innings: int = MAX_GAME_INNINGS,
+    ) -> GameLog:
         """
-        경기 전체 시뮬레이션
+        경기 전체 시뮬레이션.
 
-        반영 규칙:
-        - team_a는 원정팀: 초 공격
-        - team_b는 홈팀: 말 공격
-        - 9회초 종료 후 홈팀이 앞서면 9회말 생략
-        - 9회말 또는 연장 말 공격에서 홈팀이 앞서는 순간 끝내기 종료
+        - 정규 9이닝 진행
+        - 동점이면 연장 진행
+        - 홈팀이 말 공격에서 앞서면 끝내기 종료
+        - max_innings, 기본 12회 이후에도 동점이면 무승부 종료
         """
+
+        if max_innings < innings:
+            raise ValueError("max_innings는 정규 이닝보다 작을 수 없습니다.")
 
         team_a_score = 0
         team_b_score = 0
-
         team_a_batter_idx = 0
         team_b_batter_idx = 0
-
         inning_logs: List[HalfInningLog] = []
-
         inning = 1
 
-        while True:
-            # -------- 초 공격: team_a --------
+        while inning <= max_innings:
             top_log, team_a_batter_idx, _ = self.simulate_half_inning(
                 inning=inning,
                 half="초",
@@ -566,17 +1027,13 @@ class MatchSimulator:#두 팀의 경기를 시뮬레이션하는 클래스
                 lineup=self.team_a_lineup,
                 start_batter_idx=team_a_batter_idx,
             )
-
             team_a_score += top_log.runs
             inning_logs.append(top_log)
 
-            # 정규 이닝 마지막 초 공격 후 홈팀이 이미 이기고 있으면 말 공격 생략
-            # 원정팀이 지고 있으면 말 공격 생략
-            if inning >= innings and team_b_score >= team_a_score:
+            # 정규 이닝 마지막 이후 홈팀이 이미 앞서면 말 공격 생략
+            if inning >= innings and team_b_score > team_a_score:
                 break
 
-            # -------- 말 공격: team_b --------
-            # 정규 이닝 마지막 또는 연장에서는 홈팀이 앞서면 즉시 끝내기
             walkoff_target = None
             if inning >= innings:
                 walkoff_target = team_a_score - team_b_score + 1
@@ -589,23 +1046,18 @@ class MatchSimulator:#두 팀의 경기를 시뮬레이션하는 클래스
                 start_batter_idx=team_b_batter_idx,
                 walkoff_target=walkoff_target,
             )
-
             team_b_score += bottom_log.runs
             inning_logs.append(bottom_log)
 
-            # 홈팀 끝내기 승리
             if is_walkoff:
                 break
 
-            # 정규 이닝 이후 양 팀 점수가 다르면 경기 종료
+            if inning >= max_innings:
+                break
+
             if inning >= innings and team_a_score != team_b_score:
                 break
 
-            # 최대 이닝 초과 시 무승부 종료
-            if inning >= 12:
-                break
-
-            # 다음 이닝 진행
             inning += 1
 
         return GameLog(
@@ -616,29 +1068,20 @@ class MatchSimulator:#두 팀의 경기를 시뮬레이션하는 클래스
         )
 
 
+# -----------------------------------------------------------------------------
+# 출력 및 실행 보조 함수
+# -----------------------------------------------------------------------------
 
 def print_game_log(game_log: GameLog) -> None:
-    """
-    경기 로그를 사람이 읽기 쉬운 형태로 출력
-
-    변경 사항:
-    - 경기 시작 정보 먼저 출력
-    - 이닝별 로그 출력
-    - 마지막에 최종 스코어 출력
-    """
-
     team_a_score, team_b_score = game_log.final_score
 
     print("=" * 70)
     print(f"{game_log.team_a} vs {game_log.team_b}")
     print("=" * 70)
 
-    # 이닝별 출력
     for half_log in game_log.innings:
         print(f"\n[{half_log.inning}회{half_log.half}] {half_log.team_name} 공격")
         print(f"이닝 득점: {half_log.runs}점")
-
-        # 타석별 출력
         for log in half_log.plate_appearances:
             print(
                 f"  {log.batter_order}번 {log.batter_name} - {log.event} "
@@ -647,13 +1090,15 @@ def print_game_log(game_log: GameLog) -> None:
                 f"/ {log.bases_after}"
             )
 
-    # 최종 스코어는 모든 이닝 출력 후 마지막에 표시
     print("\n" + "=" * 70)
     print("[최종 스코어]")
     print(f"{game_log.team_a} {team_a_score} : {team_b_score} {game_log.team_b}")
+    if game_log.innings and game_log.innings[-1].inning >= MAX_GAME_INNINGS and team_a_score == team_b_score:
+        print(f"{MAX_GAME_INNINGS}회 종료 무승부")
     print("=" * 70)
 
-def brute_force_optimize(lineup: List[PlayerProb], innings: int = 9) -> Tuple[List[PlayerProb], float]: #9! 모든 타순 평가
+
+def brute_force_optimize(lineup: List[PlayerProb], innings: int = REGULATION_INNINGS) -> Tuple[List[PlayerProb], float]:
     best_order: List[PlayerProb] | None = None
     best_score = -math.inf
 
@@ -668,285 +1113,164 @@ def brute_force_optimize(lineup: List[PlayerProb], innings: int = 9) -> Tuple[Li
         raise RuntimeError("최적화 실패")
     return best_order, best_score
 
-def print_lineup(lineup: List[PlayerProb]) -> str: #라인업 출력 함수
-    return "\n".join(
-        f"{idx}. {player.name}"
-        for idx, player in enumerate(lineup, start=1)
-    )
 
-def ssg_landers_players() -> List[PlayerProb]:
-    """
-    SSG 랜더스 라인업 데이터
-
-    실제 프로젝트에서는 여기의 수치를
-    KBO / STATIZ / CSV / DB에서 가져온 선수별 시즌 기록으로 교체하면 된다.
-    """
-
-    records = [
-        BattingRecord(
-            name="박성한",
-            ab=106,
-            hits=46,
-            double=10,
-            triple=1,
-            hr=2,
-            bb=24,
-            hbp=1,
-        ),
-        BattingRecord(
-            name="정준재",
-            ab=62,
-            hits=18,
-            double=1,
-            triple=1,
-            hr=1,
-            bb=8,
-            hbp=1,
-        ),
-        BattingRecord(
-            name="최정",
-            ab=101,
-            hits=27,
-            double=7,
-            triple=1,
-            hr=7,
-            bb=19,
-            hbp=3,
-        ),
-        BattingRecord(
-            name="에레디아",
-            ab=115,
-            hits=31,
-            double=4,
-            triple=0,
-            hr=5,
-            bb=6,
-            hbp=1,
-        ),
-        BattingRecord(
-            name="한유섬",
-            ab=64,
-            hits=11,
-            double=1,
-            triple=0,
-            hr=0,
-            bb=16,
-            hbp=2,
-        ),
-        BattingRecord(
-            name="최지훈",
-            ab=106,
-            hits=22,
-            double=5,
-            triple=1,
-            hr=4,
-            bb=8,
-            hbp=2,
-        ),
-        BattingRecord(
-            name="오태곤",
-            ab=57,
-            hits=14,
-            double=4,
-            triple=0,
-            hr=2,
-            bb=4,
-            hbp=2,
-        ),
-        BattingRecord(
-            name="최준우",  # 표본이 적음 시뮬레이션에 영향갈 수 있음
-            ab=8,
-            hits=4,
-            double=0,
-            triple=0,
-            hr=0,
-            bb=1,
-            hbp=0,
-        ),
-        BattingRecord(
-            name="조형우",
-            ab=58,
-            hits=16,
-            double=4,
-            triple=0,
-            hr=1,
-            bb=5,
-            hbp=2,
-        ),
-    ]
-
-    return [record_to_player_prob(record) for record in records]
-
-def lotte_giants_players() -> List[PlayerProb]:
-    """
-    롯데 자이언츠 라인업 데이터
-
-    실제 프로젝트에서는 여기의 수치를
-    KBO / STATIZ / CSV / DB에서 가져온 선수별 시즌 기록으로 교체하면 된다.
-    """
-
-    records = [
-        BattingRecord(
-            name="장두성",
-            ab=48,
-            hits=16,
-            double=1,
-            triple=1,
-            hr=0,
-            bb=1,
-            hbp=1,
-        ),
-        BattingRecord(
-            name="윤동희",
-            ab=75,
-            hits=14,
-            double=4,
-            triple=0,
-            hr=3,
-            bb=6,
-            hbp=1,
-        ),
-        BattingRecord(
-            name="레이예스",
-            ab=113,
-            hits=39,
-            double=8,
-            triple=0,
-            hr=5,
-            bb=11,
-            hbp=2,
-        ),
-        BattingRecord(
-            name="유강남",
-            ab=62,
-            hits=16,
-            double=4,
-            triple=0,
-            hr=2,
-            bb=1,
-            hbp=0,
-        ),
-        BattingRecord(
-            name="김민성",
-            ab=14,
-            hits=1,
-            double=0,
-            triple=0,
-            hr=1,
-            bb=3,
-            hbp=0,
-        ),
-        BattingRecord(
-            name="박승욱",
-            ab=32,
-            hits=11,
-            double=2,
-            triple=0,
-            hr=1,
-            bb=1,
-            hbp=0,
-        ),
-        BattingRecord(
-            name="전민재",
-            ab=77,
-            hits=18,
-            double=3,
-            triple=0,
-            hr=0,
-            bb=7,
-            hbp=0,
-        ),
-        BattingRecord(
-            name="손성빈",
-            ab=48,
-            hits=10,
-            double=2,
-            triple=0,
-            hr=1,
-            bb=6,
-            hbp=0,
-        ),
-        BattingRecord(
-            name="한태양",
-            ab=74,
-            hits=18,
-            double=3,
-            triple=0,
-            hr=0,
-            bb=7,
-            hbp=1,
-        ),
-    ]
-
-    return [record_to_player_prob(record) for record in records]
+def print_lineup(lineup: List[PlayerProb]) -> str:
+    lines = []
+    for idx, player in enumerate(lineup, start=1):
+        if player.position:
+            lines.append(f"{idx}. {player.name} ({player.position})")
+        else:
+            lines.append(f"{idx}. {player.name}")
+    return "\n".join(lines)
 
 
+def choose_team(label: str, hitter_stats_csv_path: Path = HITTER_STATS_CSV_PATH) -> str:
+    teams = available_teams(hitter_stats_csv_path)
+    print(f"\n[{label} 선택]")
+    print("사용 가능 팀:", ", ".join(teams))
+    default = "SSG" if label == "원정팀" else "롯데"
+    selected = input(f"{label} 이름을 입력하세요 [기본값: {default}]: ").strip()
+    return selected or default
+
+
+def run_team_report(team_name: str, lineup: List[PlayerProb], innings: int = REGULATION_INNINGS) -> Tuple[List[float], float]:
+    print(f"\n[{team_name} Markov Chain 결과]")
+    model = LineupMarkovModel(lineup, max_runs=25)
+    dist = model.game_run_distribution(innings=innings)
+    expected = model.expected_runs(dist)
+    print(f"{team_name} 기대 득점: {expected:.4f}")
+    return dist, expected
+
+
+def run_monte_carlo_report(
+    team_name: str,
+    lineup: List[PlayerProb],
+    seed: int = 42,
+    innings: int = REGULATION_INNINGS,
+) -> Dict[str, object]:
+    mc = LineupMonteCarloSimulator(lineup, seed=seed)
+    result = mc.simulate_many(n_games=5000, innings=innings)
+
+    print(f"\n{team_name}")
+    print(f"평균 득점: {result['mean_runs']:.4f}")
+    print(f"분산: {result['variance']:.4f}")
+    print(f"0점 확률: {result['prob_0_runs']:.4%}")
+    print(f"5점 이상 확률: {result['prob_5_or_more_runs']:.4%}")
+    return result
+
+
+# -----------------------------------------------------------------------------
+# main
+# -----------------------------------------------------------------------------
 
 def main() -> None:
-    team_a = ssg_landers_players()
-    team_b = lotte_giants_players()
+    print("=" * 70)
+    print("[DB 경로 확인]")
+    print(f"타자 기록 CSV: {HITTER_STATS_CSV_PATH}")
+    print(f"수비 기록 CSV: {DEFENSE_STATS_CSV_PATH}")
+    print(f"투수 기록 CSV: {PITCHER_STATS_CSV_PATH}")
+    print(f"팀 투수 기록 CSV: {TEAM_PITCHER_STATS_CSV_PATH}")
+
+    hitter_rows = _read_csv(HITTER_STATS_CSV_PATH)
+    season_year = _latest_season(hitter_rows)
+    print(f"사용 시즌: {season_year}")
+
+    team_a_name = choose_team("원정팀", hitter_stats_csv_path=HITTER_STATS_CSV_PATH)
+    team_b_name = choose_team("홈팀", hitter_stats_csv_path=HITTER_STATS_CSV_PATH)
+
+    team_a_original = load_team_players_from_db(
+        team_a_name,
+        season_year=season_year,
+        hitter_stats_csv_path=HITTER_STATS_CSV_PATH,
+        defense_stats_csv_path=DEFENSE_STATS_CSV_PATH,
+        use_position_lineup=True,
+    )
+    team_b_original = load_team_players_from_db(
+        team_b_name,
+        season_year=season_year,
+        hitter_stats_csv_path=HITTER_STATS_CSV_PATH,
+        defense_stats_csv_path=DEFENSE_STATS_CSV_PATH,
+        use_position_lineup=True,
+    )
 
     print("=" * 70)
-    print("팀 A: SSG 랜더스")
-    print(print_lineup(team_a))
+    print(f"팀 A: {team_a_name} 원본 라인업")
+    print(print_lineup(team_a_original))
 
-    print("\n팀 B: 롯데 자이언츠")
-    print(print_lineup(team_b))
+    print(f"\n팀 B: {team_b_name} 원본 라인업")
+    print(print_lineup(team_b_original))
+
+    team_a_starting_pitcher = choose_starting_pitcher(
+        team_a_name,
+        season_year=season_year,
+        pitcher_stats_csv_path=PITCHER_STATS_CSV_PATH,
+    )
+    team_b_starting_pitcher = choose_starting_pitcher(
+        team_b_name,
+        season_year=season_year,
+        pitcher_stats_csv_path=PITCHER_STATS_CSV_PATH,
+    )
+
+    league_avg = load_league_average_prob_from_db(
+        season_year=season_year,
+        team_pitcher_stats_csv_path=TEAM_PITCHER_STATS_CSV_PATH,
+    )
+
+    team_a = adjust_lineup_by_pitcher(
+        lineup=team_a_original,
+        opposing_pitcher=team_b_starting_pitcher,
+        league_avg=league_avg,
+        pitcher_weight=PITCHER_ADJUSTMENT_WEIGHT,
+    )
+    team_b = adjust_lineup_by_pitcher(
+        lineup=team_b_original,
+        opposing_pitcher=team_a_starting_pitcher,
+        league_avg=league_avg,
+        pitcher_weight=PITCHER_ADJUSTMENT_WEIGHT,
+    )
 
     print("\n" + "=" * 70)
-    print("[SSG Markov Chain 결과]")
-
-    ssg_model = LineupMarkovModel(team_a, max_runs=25)
-    ssg_dist = ssg_model.game_run_distribution(innings=9)
-    ssg_expected = ssg_model.expected_runs(ssg_dist)
-
-    print(f"SSG 기대 득점: {ssg_expected:.4f}")
-
-    print("\n[롯데 Markov Chain 결과]")
-
-    lotte_model = LineupMarkovModel(team_b, max_runs=25)
-    lotte_dist = lotte_model.game_run_distribution(innings=9)
-    lotte_expected = lotte_model.expected_runs(lotte_dist)
-
-    print(f"롯데 기대 득점: {lotte_expected:.4f}")
+    print("[선발투수 반영]")
+    print(f"{team_a_name} 선발투수: {team_a_starting_pitcher.name}")
+    print(f"{team_b_name} 선발투수: {team_b_starting_pitcher.name}")
+    print(f"투수 보정 가중치: {PITCHER_ADJUSTMENT_WEIGHT:.2f}")
 
     print("\n" + "=" * 70)
-    print("[SSG vs 롯데 경기 로그 시뮬레이션]")
+    team_a_dist, team_a_expected = run_team_report(team_a_name, team_a, innings=REGULATION_INNINGS)
+    team_b_dist, team_b_expected = run_team_report(team_b_name, team_b, innings=REGULATION_INNINGS)
+
+    print("\n" + "=" * 70)
+    print(f"[{team_a_name} vs {team_b_name} 경기 로그 시뮬레이션]")
+    print(f"정규 이닝: {REGULATION_INNINGS} / 최대 이닝: {MAX_GAME_INNINGS}")
 
     match = MatchSimulator(
-        team_a_name="SSG 랜더스",
+        team_a_name=team_a_name,
         team_a_lineup=team_a,
-        team_b_name="롯데 자이언츠",
+        team_b_name=team_b_name,
         team_b_lineup=team_b,
     )
 
-    game_log = match.simulate_game(innings=9)
+    game_log = match.simulate_game(
+        innings=REGULATION_INNINGS,
+        max_innings=MAX_GAME_INNINGS,
+    )
     print_game_log(game_log)
-    
+
     print("\n" + "=" * 70)
     print("[Monte Carlo 결과 비교]")
 
-    ssg_mc = LineupMonteCarloSimulator(team_a, seed=42)
-    ssg_mc_result = ssg_mc.simulate_many(n_games=5000, innings=9)
-
-    lotte_mc = LineupMonteCarloSimulator(team_b, seed=42)
-    lotte_mc_result = lotte_mc.simulate_many(n_games=5000, innings=9)
-
-    print("\nSSG 랜더스")
-    print(f"평균 득점: {ssg_mc_result['mean_runs']:.4f}")
-    print(f"분산: {ssg_mc_result['variance']:.4f}")
-    print(f"0점 확률: {ssg_mc_result['prob_0_runs']:.4%}")
-    print(f"5점 이상 확률: {ssg_mc_result['prob_5_or_more_runs']:.4%}")
-
-    print("\n롯데 자이언츠")
-    print(f"평균 득점: {lotte_mc_result['mean_runs']:.4f}")
-    print(f"분산: {lotte_mc_result['variance']:.4f}")
-    print(f"0점 확률: {lotte_mc_result['prob_0_runs']:.4%}")
-    print(f"5점 이상 확률: {lotte_mc_result['prob_5_or_more_runs']:.4%}")
+    team_a_mc_result = run_monte_carlo_report(team_a_name, team_a, seed=42, innings=REGULATION_INNINGS)
+    team_b_mc_result = run_monte_carlo_report(team_b_name, team_b, seed=42, innings=REGULATION_INNINGS)
 
     print("\n[Markov vs Monte Carlo 평균 득점 비교]")
-    print(f"SSG  - Markov 기대 득점: {ssg_expected:.4f} / Monte Carlo 평균 득점: {ssg_mc_result['mean_runs']:.4f}")
-    print(f"롯데 - Markov 기대 득점: {lotte_expected:.4f} / Monte Carlo 평균 득점: {lotte_mc_result['mean_runs']:.4f}")
+    print(
+        f"{team_a_name} - Markov 기대 득점: {team_a_expected:.4f} "
+        f"/ Monte Carlo 평균 득점: {team_a_mc_result['mean_runs']:.4f}"
+    )
+    print(
+        f"{team_b_name} - Markov 기대 득점: {team_b_expected:.4f} "
+        f"/ Monte Carlo 평균 득점: {team_b_mc_result['mean_runs']:.4f}"
+    )
 
 
 if __name__ == "__main__":
