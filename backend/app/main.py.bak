@@ -1,6 +1,7 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response, JSONResponse
+from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel
 from typing import List, Optional
 from decimal import Decimal
@@ -11,14 +12,14 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from game_simulator.simulator_main import (
     BattingRecord, record_to_player_prob,
     MatchSimulator, LineupMonteCarloSimulator, LineupMarkovModel,
-    PitcherProb, adjust_lineup_by_pitcher, LeagueAverageProb,
 )
 
 def clean(v):
     if isinstance(v, Decimal): return None if v.is_nan() else float(v)
     if isinstance(v, float) and math.isnan(v): return None
     return v
-def row(r):  return {k: clean(v) for k, v in dict(r).items()}
+
+def row(r): return {k: clean(v) for k, v in dict(r).items()}
 def rows(rs): return [row(r) for r in rs]
 
 class SafeJSONResponse(JSONResponse):
@@ -30,16 +31,27 @@ class SafeJSONResponse(JSONResponse):
         return J.dumps(content, ensure_ascii=False, default=default).encode("utf-8")
 
 app = FastAPI(title="BallPark Intelligence API", default_response_class=SafeJSONResponse)
-app.add_middleware(CORSMiddleware,
-    allow_origins=["http://localhost:5173", "https://ballpark-intelligence.vercel.app", os.getenv("FRONTEND_URL","")],
+app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:5173", "https://ballpark-intelligence.vercel.app", os.getenv("FRONTEND_URL", "")],
     allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
-DB = dict(host=os.getenv("DB_HOST","localhost"), port=int(os.getenv("DB_PORT",5432)),
-          dbname=os.getenv("DB_NAME","ballpark"), user=os.getenv("DB_USER","ballpark"),
-          password=os.getenv("DB_PASSWORD","ballpark1234"))
+import os
+DB = {
+    "host": os.getenv("DB_HOST", "localhost"),
+    "port": int(os.getenv("DB_PORT", 5432)),
+    "dbname": os.getenv("DB_NAME", "ballpark"),
+    "user": os.getenv("DB_USER", "ballpark"),
+    "password": os.getenv("DB_PASSWORD", "ballpark1234")
+}
 SEASON = 2026
-def get_conn(): return psycopg2.connect(**DB)
-def get_cur(c): return c.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+def conn(): return psycopg2.connect(**DB)
+def cur(c): return c.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+def clean(v):
+    if isinstance(v, Decimal): return None if v.is_nan() else float(v)
+    if isinstance(v, float) and math.isnan(v): return None
+    return v
+def row(r): return {k: clean(v) for k, v in dict(r).items()}
+def rows(rs): return [row(r) for r in rs]
 
 WOBA = "(pst.bb*0.69+pst.hbp*0.72+(pst.h-pst.double_hit-pst.triple_hit-pst.hr)*0.87+pst.double_hit*1.217+pst.triple_hit*1.529+pst.hr*1.74)/NULLIF(pst.pa,0)"
 
@@ -47,8 +59,8 @@ HITTER_Q = f"""
     SELECT p.player_id, p.player_name, t.team_name, pst.season_year,
         pst.avg, pst.pa, pst.ab, pst.h, pst.double_hit, pst.triple_hit,
         pst.hr, pst.bb, pst.hbp, pst.so, pst.slg, pst.obp, pst.ops, pst.isop, pst.rbi,
-        ROUND(CAST(pst.bb  AS NUMERIC)/NULLIF(pst.pa,0)*100,1) AS bb_rate,
-        ROUND(CAST(pst.so  AS NUMERIC)/NULLIF(pst.pa,0)*100,1) AS k_rate,
+        ROUND(CAST(pst.bb AS NUMERIC)/NULLIF(pst.pa,0)*100,1) AS bb_rate,
+        ROUND(CAST(pst.so AS NUMERIC)/NULLIF(pst.pa,0)*100,1) AS k_rate,
         ROUND(CAST(pst.slg-pst.avg AS NUMERIC),3) AS iso,
         ROUND(CAST({WOBA} AS NUMERIC),3) AS woba,
         ROUND(CAST(((({WOBA})-0.273)/1.157+0.123)/0.123*100 AS NUMERIC),0) AS wrc_plus,
@@ -59,9 +71,9 @@ HITTER_Q = f"""
         ROUND(CAST(PERCENT_RANK() OVER(PARTITION BY pst.season_year ORDER BY CAST(pst.so AS NUMERIC)/NULLIF(pst.pa,0) DESC)*100 AS NUMERIC),0) AS k_percentile,
         NULL::numeric AS babip, NULL::numeric AS spd, NULL::numeric AS war, def.position
     FROM players p
-    JOIN player_hitter_stats pst ON p.player_id = pst.player_id
-    JOIN teams t ON pst.team_id = t.team_id
-    LEFT JOIN player_defense_stats def ON p.player_id = def.player_id AND pst.season_year = def.season_year
+    JOIN player_hitter_stats pst ON p.player_id=pst.player_id
+    JOIN teams t ON pst.team_id=t.team_id
+    LEFT JOIN player_defense_stats def ON p.player_id=def.player_id AND pst.season_year=def.season_year
 """
 
 PITCHER_Q = """
@@ -77,88 +89,43 @@ PITCHER_Q = """
         0::numeric AS hr_percentile, 0::numeric AS bb_percentile, 0::numeric AS k_percentile,
         NULL::numeric AS babip, NULL::numeric AS spd, NULL::numeric AS war, '투수' AS position,
         ps.era, ps.w, ps.l, ps.sv, ps.hld, ps.ip,
-        ps.so AS pitcher_so, ps.bb AS pitcher_bb, ps.whip, ps.g, ps.h, ps.hr AS pitcher_hr, ps.tbf,
-        ROUND(CAST(PERCENT_RANK() OVER(PARTITION BY ps.season_year ORDER BY ps.era   DESC)*100 AS NUMERIC),0) AS era_percentile,
-        ROUND(CAST(PERCENT_RANK() OVER(PARTITION BY ps.season_year ORDER BY ps.whip  DESC)*100 AS NUMERIC),0) AS whip_percentile,
-        ROUND(CAST(PERCENT_RANK() OVER(PARTITION BY ps.season_year ORDER BY ps.so        )*100 AS NUMERIC),0) AS so_percentile,
-        ROUND(CAST(PERCENT_RANK() OVER(PARTITION BY ps.season_year ORDER BY ps.sv        )*100 AS NUMERIC),0) AS sv_percentile,
-        ROUND(CAST(PERCENT_RANK() OVER(PARTITION BY ps.season_year ORDER BY ps.w         )*100 AS NUMERIC),0) AS w_percentile
+        ps.so AS pitcher_so, ps.bb AS pitcher_bb, ps.whip, ps.g,
+        ROUND(CAST(PERCENT_RANK() OVER(PARTITION BY ps.season_year ORDER BY ps.era DESC)*100 AS NUMERIC),0) AS era_percentile,
+        ROUND(CAST(PERCENT_RANK() OVER(PARTITION BY ps.season_year ORDER BY ps.whip DESC)*100 AS NUMERIC),0) AS whip_percentile,
+        ROUND(CAST(PERCENT_RANK() OVER(PARTITION BY ps.season_year ORDER BY ps.so)*100 AS NUMERIC),0) AS so_percentile,
+        ROUND(CAST(PERCENT_RANK() OVER(PARTITION BY ps.season_year ORDER BY ps.sv)*100 AS NUMERIC),0) AS sv_percentile,
+        ROUND(CAST(PERCENT_RANK() OVER(PARTITION BY ps.season_year ORDER BY ps.w)*100 AS NUMERIC),0) AS w_percentile
     FROM players p
-    JOIN player_pitcher_stats ps ON p.player_id = ps.player_id
-    JOIN teams t ON ps.team_id = t.team_id
+    JOIN player_pitcher_stats ps ON p.player_id=ps.player_id
+    JOIN teams t ON ps.team_id=t.team_id
 """
 
 def sc(search, a="p", t="t"):
     return f" AND ({a}.player_name ILIKE %s OR {t}.team_name ILIKE %s)" if search else ""
-
-def _fetch_pitcher_prob(pitcher_name: str, team_name: str) -> Optional[PitcherProb]:
-    try:
-        c=get_conn(); cr=get_cur(c)
-        cr.execute("""
-            SELECT p.player_name, ps.h, ps.bb, ps.hr, ps.tbf, ps.ip, ps.era, ps.g, ps.gs
-            FROM player_pitcher_stats ps
-            JOIN players p ON ps.player_id = p.player_id
-            WHERE p.player_name = %s AND ps.season_year = %s
-            ORDER BY ps.gs DESC LIMIT 1
-        """, (pitcher_name, SEASON))
-        r=cr.fetchone(); cr.close(); c.close()
-        if not r: return None
-        tbf=r['tbf'] or 0
-        if tbf<=0: return None
-        h=r['h'] or 0; bb=r['bb'] or 0; hr=r['hr'] or 0
-        single=max(0,(h-hr)*0.8); double_=max(0,(h-hr)*0.2); out=max(0,tbf-h-bb)
-        return PitcherProb(name=pitcher_name, team_name=team_name,
-            bb=bb/tbf, single=single/tbf, double=double_/tbf,
-            triple=0.003, hr=hr/tbf, out=out/tbf,
-            era=float(r['era'] or 4.0), gs=int(r['gs'] or 0), g=int(r['g'] or 0))
-    except Exception:
-        return None
-
-def _get_league_avg() -> Optional[LeagueAverageProb]:
-    try:
-        c=get_conn(); cr=get_cur(c)
-        cr.execute("""
-            SELECT SUM(h) AS h, SUM(bb) AS bb, SUM(hr) AS hr, SUM(tbf) AS tbf
-            FROM player_pitcher_stats WHERE season_year=%s AND tbf>0
-        """, (SEASON,))
-        r=cr.fetchone(); cr.close(); c.close()
-        if not r or not r['tbf']: raise Exception()
-        tbf=r['tbf']; h=r['h'] or 0; bb=r['bb'] or 0; hr=r['hr'] or 0
-        single=max(0,(h-hr)*0.8); double_=max(0,(h-hr)*0.2); out=max(0,tbf-h-bb)
-        return LeagueAverageProb(bb=bb/tbf,single=single/tbf,double=double_/tbf,triple=0.003,hr=hr/tbf,out=out/tbf)
-    except Exception:
-        return LeagueAverageProb(bb=0.085,single=0.150,double=0.040,triple=0.004,hr=0.028,out=0.693)
 
 class PlayerRecord(BaseModel):
     name:str; ab:int; hits:int; double:int; triple:int; hr:int; bb:int; hbp:int=0
 
 class SimReq(BaseModel):
     team_a_name:str; team_a_lineup:List[PlayerRecord]
-    team_b_name:str; team_b_lineup:List[PlayerRecord]
-    innings:int=9
-    pitcher_a:Optional[str]=None
-    pitcher_b:Optional[str]=None
+    team_b_name:str; team_b_lineup:List[PlayerRecord]; innings:int=9
 
 class MultiReq(BaseModel):
     team_a_name:str; team_a_lineup:List[PlayerRecord]
-    team_b_name:str; team_b_lineup:List[PlayerRecord]
-    n_games:int=1000; innings:int=9
-    pitcher_a:Optional[str]=None
-    pitcher_b:Optional[str]=None
+    team_b_name:str; team_b_lineup:List[PlayerRecord]; n_games:int=1000; innings:int=9
 
 class RecordCreate(BaseModel):
     team_name:str; opponent_name:str; result:str; my_score:int; opp_score:int
 
 @app.get("/")
 def root(): return {"message":"BallPark Intelligence API is running"}
-
 @app.get("/health")
 def health(): return {"status":"ok"}
 
 @app.get("/api/players")
 def get_players(search: Optional[str]=None):
     try:
-        c=get_conn(); cr=get_cur(c); like=[f"%{search}%"]*2 if search else []
+        c=conn(); cr=cur(c); like=[f"%{search}%"]*2 if search else []
         cr.execute(HITTER_Q+" WHERE pst.season_year=%s AND pst.pa>=5"+sc(search)+" ORDER BY woba DESC NULLS LAST LIMIT 50",[SEASON]+like)
         hitters=list(cr.fetchall())
         if search:
@@ -175,7 +142,7 @@ def get_players(search: Optional[str]=None):
 def get_player(player_id:int, season:Optional[int]=None):
     target=season or SEASON
     try:
-        c=get_conn(); cr=get_cur(c)
+        c=conn(); cr=cur(c)
         cr.execute("SELECT array_agg(DISTINCT season_year ORDER BY season_year DESC) AS seasons FROM(SELECT season_year FROM player_hitter_stats WHERE player_id=%s::varchar AND pa>0 UNION SELECT season_year FROM player_pitcher_stats WHERE player_id=%s::varchar) s",(player_id,player_id))
         av=list((cr.fetchone()['seasons'] or []))
         cr.execute("SELECT * FROM("+HITTER_Q+"WHERE pst.season_year=%s AND pst.pa>0) sub WHERE sub.player_id=%s::varchar",(target,player_id))
@@ -187,14 +154,16 @@ def get_player(player_id:int, season:Optional[int]=None):
                 cr.execute("SELECT * FROM("+HITTER_Q+"WHERE pst.season_year=%s AND pst.pa>=5) sub WHERE sub.player_id=%s::varchar",(ls,player_id))
                 r=cr.fetchone()
         if not r:
+            # 요청한 시즌으로 먼저 시도
             cr.execute("SELECT * FROM("+PITCHER_Q+"WHERE ps.season_year=%s) sub WHERE sub.player_id=%s::varchar",(target,player_id))
             r=cr.fetchone()
+            # 없으면 최신 시즌으로 fallback
             if not r:
                 cr.execute("SELECT MAX(season_year) FROM player_pitcher_stats WHERE player_id=%s::varchar AND g>=3",(player_id,))
                 lp=cr.fetchone(); lp=lp['max'] if lp and lp['max'] else target
                 cr.execute("SELECT * FROM("+PITCHER_Q+"WHERE ps.season_year=%s) sub WHERE sub.player_id=%s::varchar",(lp,player_id))
                 r=cr.fetchone()
-        cr.close(); c.close()
+                cr.close(); c.close()
         if not r: raise HTTPException(404,"선수를 찾을 수 없습니다.")
         result=row(r); result['available_seasons']=av; result['current_season']=target
         return result
@@ -204,7 +173,7 @@ def get_player(player_id:int, season:Optional[int]=None):
 @app.get("/api/teams")
 def get_teams():
     try:
-        c=get_conn(); cr=get_cur(c); cr.execute("SELECT * FROM teams ORDER BY team_name")
+        c=conn(); cr=cur(c); cr.execute("SELECT * FROM teams ORDER BY team_name")
         r=cr.fetchall(); cr.close(); c.close()
         return {"teams":rows(r)}
     except Exception as e: raise HTTPException(500,str(e))
@@ -212,7 +181,7 @@ def get_teams():
 @app.get("/api/teams/{team_name}/lineup")
 def get_lineup(team_name:str):
     try:
-        c=get_conn(); cr=get_cur(c)
+        c=conn(); cr=cur(c)
         cr.execute("SELECT p.player_name,pst.ab,pst.h AS hits,pst.double_hit AS double,pst.triple_hit AS triple,pst.hr,pst.bb,pst.hbp FROM players p JOIN player_hitter_stats pst ON p.player_id=pst.player_id JOIN teams t ON pst.team_id=t.team_id WHERE t.team_name=%s AND pst.season_year=%s AND pst.pa>=50 ORDER BY pst.pa DESC LIMIT 9",(team_name,SEASON))
         r=cr.fetchall(); cr.close(); c.close()
         if not r: raise HTTPException(404,"팀을 찾을 수 없습니다.")
@@ -220,48 +189,22 @@ def get_lineup(team_name:str):
     except HTTPException: raise
     except Exception as e: raise HTTPException(500,str(e))
 
-@app.get("/api/pitchers/{team_name}")
-def get_team_pitchers(team_name:str):
-    try:
-        c=get_conn(); cr=get_cur(c)
-        cr.execute("""
-            SELECT p.player_name, ps.era, ps.g, ps.gs, ps.w, ps.l, ps.whip, ps.so, ps.ip
-            FROM player_pitcher_stats ps
-            JOIN players p ON ps.player_id = p.player_id
-            JOIN teams t ON ps.team_id = t.team_id
-            WHERE t.team_name = %s AND ps.season_year = %s AND ps.gs >= 3
-            ORDER BY ps.gs DESC LIMIT 15
-        """, (team_name, SEASON))
-        r=cr.fetchall(); cr.close(); c.close()
-        return {"pitchers": rows(r)}
-    except Exception as e: raise HTTPException(500,str(e))
-
 @app.post("/api/simulate/game")
-@app.post("/game")
 def simulate_game(req:SimReq):
     ta=[record_to_player_prob(BattingRecord(**p.dict())) for p in req.team_a_lineup]
     tb=[record_to_player_prob(BattingRecord(**p.dict())) for p in req.team_b_lineup]
-    league_avg=_get_league_avg()
-    if req.pitcher_b and league_avg:
-        pp=_fetch_pitcher_prob(req.pitcher_b, req.team_b_name)
-        if pp: ta=adjust_lineup_by_pitcher(ta, pp, league_avg)
-    if req.pitcher_a and league_avg:
-        pp=_fetch_pitcher_prob(req.pitcher_a, req.team_a_name)
-        if pp: tb=adjust_lineup_by_pitcher(tb, pp, league_avg)
     g=MatchSimulator(team_a_name=req.team_a_name,team_a_lineup=ta,team_b_name=req.team_b_name,team_b_lineup=tb).simulate_game(innings=req.innings)
     return {"team_a_name":req.team_a_name,"team_b_name":req.team_b_name,"game_log":g,"is_draw":g.final_score[0]==g.final_score[1]}
+
+@app.post("/game")
+def simulate_game_fallback(req: SimReq):
+    """프론트엔드가 /api/simulate/game 대신 /game으로 찌를 때를 위한 우회 경로"""
+    return simulate_game(req)
 
 @app.post("/api/simulate/multi")
 def simulate_multi(req:MultiReq):
     ta=[record_to_player_prob(BattingRecord(**p.dict())) for p in req.team_a_lineup]
     tb=[record_to_player_prob(BattingRecord(**p.dict())) for p in req.team_b_lineup]
-    league_avg=_get_league_avg()
-    if req.pitcher_b and league_avg:
-        pp=_fetch_pitcher_prob(req.pitcher_b, req.team_b_name)
-        if pp: ta=adjust_lineup_by_pitcher(ta, pp, league_avg)
-    if req.pitcher_a and league_avg:
-        pp=_fetch_pitcher_prob(req.pitcher_a, req.team_a_name)
-        if pp: tb=adjust_lineup_by_pitcher(tb, pp, league_avg)
     ra=LineupMonteCarloSimulator(ta,seed=42).simulate_many(n_games=req.n_games,innings=req.innings)
     rb=LineupMonteCarloSimulator(tb,seed=42).simulate_many(n_games=req.n_games,innings=req.innings)
     ma=LineupMarkovModel(ta,max_runs=25); mb=LineupMarkovModel(tb,max_runs=25)
@@ -272,7 +215,7 @@ def simulate_multi(req:MultiReq):
 @app.post("/api/records")
 def save_record(req:RecordCreate):
     try:
-        c=get_conn(); cr=c.cursor()
+        c=conn(); cr=c.cursor()
         cr.execute("INSERT INTO game_records(team_name,opponent_name,result,my_score,opp_score) VALUES(%s,%s,%s,%s,%s) RETURNING id",(req.team_name,req.opponent_name,req.result,req.my_score,req.opp_score))
         rid=cr.fetchone()[0]; c.commit(); cr.close(); c.close()
         return {"id":rid,"message":"전적이 저장되었습니다."}
@@ -281,9 +224,9 @@ def save_record(req:RecordCreate):
 @app.get("/api/records")
 def get_records(team_name:Optional[str]=None):
     try:
-        c=get_conn(); cr=get_cur(c)
+        c=conn(); cr=cur(c)
         if team_name: cr.execute("SELECT * FROM game_records WHERE team_name=%s ORDER BY played_at DESC LIMIT 20",(team_name,))
-        else:         cr.execute("SELECT * FROM game_records ORDER BY played_at DESC LIMIT 20")
+        else: cr.execute("SELECT * FROM game_records ORDER BY played_at DESC LIMIT 20")
         r=cr.fetchall(); cr.close(); c.close()
         return {"records":rows(r)}
     except Exception as e: raise HTTPException(500,str(e))
@@ -291,7 +234,7 @@ def get_records(team_name:Optional[str]=None):
 @app.delete("/api/records/{record_id}")
 def delete_record(record_id:int):
     try:
-        c=get_conn(); cr=c.cursor()
+        c=conn(); cr=c.cursor()
         cr.execute("DELETE FROM game_records WHERE id=%s",(record_id,))
         c.commit(); cr.close(); c.close()
         return {"message":"삭제되었습니다."}
@@ -320,7 +263,7 @@ def get_team_rank():
         raise Exception()
     except Exception:
         try:
-            c=get_conn(); cr=get_cur(c)
+            c=conn(); cr=cur(c)
             cr.execute("SELECT t.team_name,r.games,r.wins,r.losses,r.draws,r.win_rate,r.last10,r.streak,ROW_NUMBER() OVER(ORDER BY r.win_rate DESC) AS rank FROM team_rank_stats r JOIN teams t ON r.team_id=t.team_id WHERE r.season_year=%s ORDER BY r.win_rate DESC",(SEASON,))
             r=cr.fetchall(); cr.close(); c.close()
             return {"teams":rows(r),"source":"db"}
@@ -329,7 +272,7 @@ def get_team_rank():
 @app.get("/api/stats/hitters")
 def get_hitters(sort:Optional[str]="woba",limit:int=50):
     try:
-        c=get_conn(); cr=get_cur(c)
+        c=conn(); cr=cur(c)
         sc_map={"woba":"woba","ops":"pst.ops","hr":"pst.hr","avg":"pst.avg","rbi":"pst.rbi"}
         s=sc_map.get(sort,"woba")
         cr.execute("SELECT MAX(games) FROM team_rank_stats WHERE season_year=%s",(SEASON,))
@@ -351,22 +294,30 @@ def get_hitters(sort:Optional[str]="woba",limit:int=50):
 @app.get("/api/stats/pitchers")
 def get_pitchers(sort:Optional[str]="era",limit:int=50):
     try:
-        c=get_conn(); cr=get_cur(c)
+        c=conn(); cr=cur(c)
         cr.execute("SELECT MAX(games) FROM team_rank_stats WHERE season_year=%s",(SEASON,))
-        r=cr.fetchone(); max_games=r['max'] if r and r['max'] else 1; min_ip=max_games
+        r=cr.fetchone()
+        max_games = r['max'] if r and r['max'] else 1
+        min_g = max(1, int(max_games * 0.3))
+        min_ip = max_games  # 규정이닝 = 팀 경기 수
         sc_map={"era":"ps.era","w":"ps.w","sv":"ps.sv","so":"ps.so","whip":"ps.whip"}
-        s=sc_map.get(sort,"ps.era"); order="ASC" if sort in ("era","whip") else "DESC"
+        s=sc_map.get(sort,"ps.era")
+        order="ASC" if sort in ("era","whip") else "DESC"
         cr.execute(f"""SELECT p.player_id,p.player_name,t.team_name,ps.era,ps.g,ps.w,ps.l,ps.sv,ps.hld,ps.ip,ps.so,ps.bb,ps.hr,ps.whip,ps.wpct,
-            CAST(REGEXP_REPLACE(ps.ip,'[^0-9].*','') AS NUMERIC)+
-            CASE WHEN ps.ip LIKE '%%2/3%%' THEN 0.667 WHEN ps.ip LIKE '%%1/3%%' THEN 0.333 ELSE 0 END AS ip_numeric
-            FROM player_pitcher_stats ps JOIN players p ON ps.player_id=p.player_id
-            JOIN teams t ON ps.team_id=t.team_id
-            WHERE ps.season_year=%s AND ps.ip IS NOT NULL
-            AND (CAST(REGEXP_REPLACE(ps.ip,'[^0-9].*','') AS NUMERIC)+
-                 CASE WHEN ps.ip LIKE '%%2/3%%' THEN 0.667 WHEN ps.ip LIKE '%%1/3%%' THEN 0.333 ELSE 0 END)>=%s
-            ORDER BY {s} {order} NULLS LAST LIMIT %s""",(SEASON,min_ip,limit))
+    CAST(REGEXP_REPLACE(ps.ip, '[^0-9].*', '') AS NUMERIC) +
+    CASE WHEN ps.ip LIKE '%%2/3%%' THEN 0.667
+         WHEN ps.ip LIKE '%%1/3%%' THEN 0.333
+         ELSE 0 END AS ip_numeric
+    FROM player_pitcher_stats ps JOIN players p ON ps.player_id=p.player_id
+    JOIN teams t ON ps.team_id=t.team_id
+    WHERE ps.season_year=%s AND ps.ip IS NOT NULL
+    AND (CAST(REGEXP_REPLACE(ps.ip, '[^0-9].*', '') AS NUMERIC) +
+         CASE WHEN ps.ip LIKE '%%2/3%%' THEN 0.667
+              WHEN ps.ip LIKE '%%1/3%%' THEN 0.333
+              ELSE 0 END) >= %s
+    ORDER BY {s} {order} NULLS LAST LIMIT %s""",(SEASON,min_ip,limit))
         r=cr.fetchall(); cr.close(); c.close()
-        return {"pitchers":rows(r)}
+        return {"pitchers":rows(r),"min_g":min_g}
     except Exception as e: raise HTTPException(500,str(e))
 
 @app.post("/api/lineup/optimize")
@@ -386,68 +337,106 @@ def optimize_lineup(req:SimReq):
         return {"optimized_order":[p.name for p in result]}
     except Exception as e: raise HTTPException(500,str(e))
 
-def _fetch_schedule(month:str) -> list:
-    data=urllib.parse.urlencode({"leId":"1","srId":"0","srIdList":"0,9","seasonId":"2026","gameWeek":"","teamId":"","stadiumId":"","gameId":"","gameDay":"","gameMonth":month}).encode()
-    req=urllib.request.Request("https://www.koreabaseball.com/ws/Schedule.asmx/GetScheduleList",data=data,
-        headers={"Content-Type":"application/x-www-form-urlencoded","User-Agent":"Mozilla/5.0","Referer":"https://www.koreabaseball.com/Schedule/Schedule.aspx"})
-    with urllib.request.urlopen(req,timeout=10) as res: return J.loads(res.read().decode("utf-8")).get("rows",[])
-
-def _parse_schedule_rows(raw_rows:list) -> list:
-    ST=["잠실","문학","사직","수원","고척","대구","광주","창원","대전","포항","울산","인천"]
-    games,cd=[],""
-    for ro in raw_rows:
-        cells=ro.get("row",[])
-        if not cells: continue
-        for c in cells:
-            if c.get("Class")=="day": cd=re.sub(r"<[^>]+>","",c.get("Text","")).strip(); break
-        tt=pt=st=xt=""
-        for c in cells:
-            cls,txt=c.get("Class"),c.get("Text","")
-            if cls=="time": tt=re.sub(r"<[^>]+>","",txt).strip()
-            elif cls=="play": pt=txt
-            elif cls is None and any(s in txt for s in ST): st=txt
-            elif "우천" in txt or "취소" in txt: xt=txt
-        if not pt or not cd: continue
-        teams=re.findall(r"<span(?:[^>]*)>([^<]+)</span>",pt)
-        scores=re.findall(r'<span class="(?:win|lose|same)">([^<]+)</span>',pt)
-        wc=re.findall(r'<span class="(win|lose|same)">',pt)
-        if len(teams)<2: continue
-        sa=scores[0] if len(scores)>=1 else None; sb=scores[1] if len(scores)>=2 else None
-        res=(f"{teams[0]} 승" if wc[0]=="win" else f"{teams[-1]} 승" if wc[0]=="lose" else "무승부") if (wc and sa and sb) else None
-        games.append({"date":cd,"time":tt,"team_a":teams[0],"team_b":teams[-1],"score_a":sa,"score_b":sb,"result":res,"stadium":st,"status":xt or None})
-    return games
-
 @app.get("/api/schedule")
 def get_schedule(month:Optional[str]=None):
     try:
-        tm=month or f"{datetime.now().month:02d}"
-        return {"month":tm,"games":_parse_schedule_rows(_fetch_schedule(tm))}
+        now=datetime.now(); tm=month or f"{now.month:02d}"
+        data=urllib.parse.urlencode({"leId":"1","srId":"0","srIdList":"0,9","seasonId":"2026","gameWeek":"","teamId":"","stadiumId":"","gameId":"","gameDay":"","gameMonth":tm}).encode()
+        req=urllib.request.Request("https://www.koreabaseball.com/ws/Schedule.asmx/GetScheduleList",data=data,
+            headers={"Content-Type":"application/x-www-form-urlencoded","User-Agent":"Mozilla/5.0","Referer":"https://www.koreabaseball.com/Schedule/Schedule.aspx"})
+        with urllib.request.urlopen(req,timeout=10) as res: raw=J.loads(res.read().decode("utf-8"))
+        ST=["잠실","문학","사직","수원","고척","대구","광주","창원","대전","포항","울산","인천"]
+        games,cd=[],""
+        for ro in raw.get("rows",[]):
+            cells=ro.get("row",[])
+            if not cells: continue
+            for c in cells:
+                if c.get("Class")=="day": cd=re.sub(r"<[^>]+>","",c.get("Text","")).strip(); break
+            tt=pt=st=xt=""
+            for c in cells:
+                cls,txt=c.get("Class"),c.get("Text","")
+                if cls=="time": tt=re.sub(r"<[^>]+>","",txt).strip()
+                elif cls=="play": pt=txt
+                elif cls is None and any(s in txt for s in ST): st=txt
+                elif "우천" in txt or "취소" in txt: xt=txt
+            if not pt or not cd: continue
+            teams=re.findall(r"<span(?:[^>]*)>([^<]+)</span>",pt)
+            scores=re.findall(r'<span class="(?:win|lose|same)">([^<]+)</span>',pt)
+            wc=re.findall(r'<span class="(win|lose|same)">',pt)
+            if len(teams)<2: continue
+            sa=scores[0] if len(scores)>=1 else None; sb=scores[1] if len(scores)>=2 else None
+            res=(f"{teams[0]} 승" if wc[0]=="win" else f"{teams[-1]} 승" if wc[0]=="lose" else "무승부") if (wc and sa and sb) else None
+            games.append({"date":cd,"time":tt,"team_a":teams[0],"team_b":teams[-1],"score_a":sa,"score_b":sb,"result":res,"stadium":st,"status":xt or None})
+        return {"month":tm,"games":games}
     except Exception as e: raise HTTPException(500,str(e))
 
 @app.get("/api/teams/{team_name}/recent")
-def get_team_recent(team_name:str):
+def get_team_recent(team_name: str):
     try:
-        now=datetime.now(); results=[]
-        for month in [f"{now.month-1:02d}",f"{now.month:02d}"]:
-            if int(month)<1: continue
-            try: raw_rows=_fetch_schedule(month)
+        from datetime import datetime
+        now = datetime.now()
+        results = []
+
+        # 이번 달과 저번 달 경기 가져오기
+        for month in [f"{now.month-1:02d}", f"{now.month:02d}"]:
+            if int(month) < 1: continue
+            data = urllib.parse.urlencode({
+                "leId":"1","srId":"0","srIdList":"0,9","seasonId":"2026",
+                "gameWeek":"","teamId":"","stadiumId":"","gameId":"",
+                "gameDay":"","gameMonth": month
+            }).encode()
+            req = urllib.request.Request(
+                "https://www.koreabaseball.com/ws/Schedule.asmx/GetScheduleList",
+                data=data,
+                headers={"Content-Type":"application/x-www-form-urlencoded",
+                         "User-Agent":"Mozilla/5.0",
+                         "Referer":"https://www.koreabaseball.com/Schedule/Schedule.aspx"})
+            try:
+                with urllib.request.urlopen(req, timeout=10) as res:
+                    raw = J.loads(res.read().decode("utf-8"))
             except: continue
-            for g in _parse_schedule_rows(raw_rows):
-                if not g["score_a"] or not g["score_b"]: continue
-                ta,tb,sa,sb=g["team_a"],g["team_b"],g["score_a"],g["score_b"]
-                wc_raw=g["result"] or ""
-                if ta==team_name:
-                    results.append({"date":g["date"],"opponent":tb,"score":f"{sa}:{sb}","result":"W" if f"{ta} 승" in wc_raw else "L" if f"{tb} 승" in wc_raw else "D"})
-                elif tb==team_name:
-                    results.append({"date":g["date"],"opponent":ta,"score":f"{sb}:{sa}","result":"W" if f"{tb} 승" in wc_raw else "L" if f"{ta} 승" in wc_raw else "D"})
-        return {"team":team_name,"recent":results[-5:] if len(results)>=5 else results}
-    except Exception as e: raise HTTPException(500,str(e))
+
+            ST = ["잠실","문학","사직","수원","고척","대구","광주","창원","대전","포항","울산","인천"]
+            cd = ""
+            for ro in raw.get("rows", []):
+                cells = ro.get("row", [])
+                if not cells: continue
+                for c in cells:
+                    if c.get("Class") == "day":
+                        cd = re.sub(r"<[^>]+>","",c.get("Text","")).strip(); break
+                tt = pt = ""
+                for c in cells:
+                    cls, txt = c.get("Class"), c.get("Text","")
+                    if cls == "time": tt = re.sub(r"<[^>]+>","",txt).strip()
+                    elif cls == "play": pt = txt
+                if not pt or not cd: continue
+                teams = re.findall(r"<span(?:[^>]*)>([^<]+)</span>", pt)
+                scores = re.findall(r'<span class="(?:win|lose|same)">([^<]+)</span>', pt)
+                wc = re.findall(r'<span class="(win|lose|same)">', pt)
+                if len(teams) < 2 or not scores: continue
+                sa, sb = scores[0] if len(scores) >= 1 else None, scores[1] if len(scores) >= 2 else None
+                if not sa or not sb: continue
+                canceled = "우천" in pt or "취소" in pt
+                if canceled: continue
+                ta, tb = teams[0], teams[-1]
+                if ta == team_name:
+                    results.append({"date": cd, "opponent": tb, "score": f"{sa}:{sb}",
+                        "result": "W" if wc and wc[0]=="win" else "L" if wc and wc[0]=="lose" else "D"})
+                elif tb == team_name:
+                    results.append({"date": cd, "opponent": ta, "score": f"{sb}:{sa}",
+                        "result": "W" if wc and wc[0]=="lose" else "L" if wc and wc[0]=="win" else "D"})
+
+        # 날짜 기준 정렬 후 최근 5경기
+        recent5 = results[-5:] if len(results) >= 5 else results
+        return {"team": team_name, "recent": recent5}
+    except Exception as e:
+        raise HTTPException(500, str(e))
 
 @app.get("/api/player-image/{player_id}")
 def get_player_image(player_id:int):
     try:
         req=urllib.request.Request(f"https://www.koreabaseball.com/file/Image/Player/2026/M/{player_id}.jpg",
-            headers={"User-Agent":"Mozilla/5.0","Referer":"https://www.koreabaseball.com/Player/Search.aspx","Accept":"image/*,*/*;q=0.8"})
+            headers={"User-Agent":"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36","Referer":"https://www.koreabaseball.com/Player/Search.aspx","Accept":"image/*,*/*;q=0.8","Accept-Language":"ko-KR,ko;q=0.9"})
         with urllib.request.urlopen(req,timeout=5) as res:
             data=res.read()
             if "html" in res.headers.get("Content-Type","").lower(): raise HTTPException(404,"이미지 없음")
@@ -458,7 +447,7 @@ def get_player_image(player_id:int):
 @app.get("/api/players/{player_id}/seasons")
 def get_seasons(player_id:int):
     try:
-        c=get_conn(); cr=get_cur(c)
+        c=conn(); cr=cur(c)
         cr.execute(f"""SELECT season_year,pst.avg,pst.pa,pst.hr,pst.rbi,pst.obp,pst.slg,pst.ops,
             ROUND(CAST(pst.bb AS NUMERIC)/NULLIF(pst.pa,0)*100,1) AS bb_rate,
             ROUND(CAST(pst.so AS NUMERIC)/NULLIF(pst.pa,0)*100,1) AS k_rate,
@@ -492,8 +481,8 @@ def get_moneyball_dist():
         all_data=get_hitter_features(SEASON)
         if not all_data: raise HTTPException(404,"데이터 없음")
         _,_,labels,type_map,_=train_kmeans(all_data)
-        dist:dict={}
-        for label in labels:
+        dist: dict={}
+        for i,label in enumerate(labels):
             tn=type_map.get(int(label),"기타"); dist[tn]=dist.get(tn,0)+1
         total=len(labels)
         return {"distribution":sorted([{"type":k,"count":v,"pct":round(v/total*100,1)} for k,v in dist.items()],key=lambda x:x["count"],reverse=True),"total":total}

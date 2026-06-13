@@ -2,33 +2,33 @@ import { useState, useRef, useEffect } from 'react';
 import { useLocation, useSearchParams } from 'react-router-dom';
 import Scoreboard from '../components/simulator/Scoreboard';
 import StatsModal from '../components/simulator/StatsModal';
-import { simulateGame, simulateMulti } from '../api/simulatorApi';
+import { simulateGame, simulateMulti, fetchTeamPitchers } from '../api/simulatorApi';
 import { saveRecord } from '../api/recordApi';
 import { fetchTeamLineup } from '../api/playerApi';
-import type { GameLog, InningLog, PlateAppearance, MultiSimulateResponse } from '../api/simulatorApi';
+import type { GameLog, InningLog, PlateAppearance, MultiSimulateResponse, PitcherInfo } from '../api/simulatorApi';
 
 const DEFAULT_LINEUP_A = [
-  { name: "최지훈",   ab: 400, hits: 120, double: 20, triple: 2, hr: 5,  bb: 40, hbp: 3 },
-  { name: "최정",     ab: 380, hits: 100, double: 18, triple: 1, hr: 25, bb: 55, hbp: 5 },
-  { name: "한유섬",   ab: 360, hits: 105, double: 22, triple: 0, hr: 18, bb: 35, hbp: 2 },
-  { name: "기예르모", ab: 350, hits: 98,  double: 19, triple: 1, hr: 20, bb: 30, hbp: 1 },
-  { name: "박성한",   ab: 370, hits: 108, double: 21, triple: 2, hr: 8,  bb: 38, hbp: 4 },
-  { name: "오태곤",   ab: 300, hits: 85,  double: 15, triple: 1, hr: 10, bb: 28, hbp: 2 },
-  { name: "김민식",   ab: 280, hits: 75,  double: 12, triple: 0, hr: 7,  bb: 22, hbp: 1 },
-  { name: "이재원",   ab: 260, hits: 68,  double: 10, triple: 0, hr: 5,  bb: 18, hbp: 1 },
-  { name: "고효준",   ab: 240, hits: 60,  double: 8,  triple: 0, hr: 3,  bb: 15, hbp: 0 },
+  { name: "박성한",   ab: 400, hits: 120, double: 20, triple: 2, hr: 5,  bb: 40, hbp: 3 },
+  { name: "정준재",     ab: 380, hits: 100, double: 18, triple: 1, hr: 25, bb: 55, hbp: 5 },
+  { name: "최정",   ab: 360, hits: 105, double: 22, triple: 0, hr: 18, bb: 35, hbp: 2 },
+  { name: "김재환", ab: 350, hits: 98,  double: 19, triple: 1, hr: 20, bb: 30, hbp: 1 },
+  { name: "에레디아",   ab: 370, hits: 108, double: 21, triple: 2, hr: 8,  bb: 38, hbp: 4 },
+  { name: "전의산",   ab: 300, hits: 85,  double: 15, triple: 1, hr: 10, bb: 28, hbp: 2 },
+  { name: "최지훈",   ab: 280, hits: 75,  double: 12, triple: 0, hr: 7,  bb: 22, hbp: 1 },
+  { name: "조형우",   ab: 260, hits: 68,  double: 10, triple: 0, hr: 5,  bb: 18, hbp: 1 },
+  { name: "홍대인",   ab: 240, hits: 60,  double: 8,  triple: 0, hr: 3,  bb: 15, hbp: 0 },
 ];
 
 const DEFAULT_LINEUP_B = [
-  { name: "장두성",   ab: 48,  hits: 16, double: 1, triple: 1, hr: 0, bb: 1,  hbp: 1 },
-  { name: "윤동희",   ab: 75,  hits: 14, double: 4, triple: 0, hr: 3, bb: 6,  hbp: 1 },
+  { name: "황성빈",   ab: 48,  hits: 16, double: 1, triple: 1, hr: 0, bb: 1,  hbp: 1 },
+  { name: "고승민",   ab: 75,  hits: 14, double: 4, triple: 0, hr: 3, bb: 6,  hbp: 1 },
   { name: "레이예스", ab: 113, hits: 39, double: 8, triple: 0, hr: 5, bb: 11, hbp: 2 },
-  { name: "유강남",   ab: 62,  hits: 16, double: 4, triple: 0, hr: 2, bb: 1,  hbp: 0 },
-  { name: "김민성",   ab: 14,  hits: 1,  double: 0, triple: 0, hr: 1, bb: 3,  hbp: 0 },
-  { name: "박승욱",   ab: 32,  hits: 11, double: 2, triple: 0, hr: 1, bb: 1,  hbp: 0 },
-  { name: "전민재",   ab: 77,  hits: 18, double: 3, triple: 0, hr: 0, bb: 7,  hbp: 0 },
+  { name: "나승엽",   ab: 62,  hits: 16, double: 4, triple: 0, hr: 2, bb: 1,  hbp: 0 },
+  { name: "전민재",   ab: 14,  hits: 1,  double: 0, triple: 0, hr: 1, bb: 3,  hbp: 0 },
+  { name: "손호영",   ab: 32,  hits: 11, double: 2, triple: 0, hr: 1, bb: 1,  hbp: 0 },
+  { name: "최항",   ab: 77,  hits: 18, double: 3, triple: 0, hr: 0, bb: 7,  hbp: 0 },
   { name: "손성빈",   ab: 48,  hits: 10, double: 2, triple: 0, hr: 1, bb: 6,  hbp: 0 },
-  { name: "한태양",   ab: 74,  hits: 18, double: 3, triple: 0, hr: 0, bb: 7,  hbp: 1 },
+  { name: "장두성",   ab: 74,  hits: 18, double: 3, triple: 0, hr: 0, bb: 7,  hbp: 1 },
 ];
 
 interface FlatEvent {
@@ -100,11 +100,15 @@ export default function SimulatorPage() {
   const urlTeamA = searchParams.get('team_a');
   const urlTeamB = searchParams.get('team_b');
 
-  const [teamAName, setTeamAName] = useState(fromMyTeam?.teamName ?? urlTeamA ?? 'SSG LANDERS');
-  const [teamBName, setTeamBName] = useState(fromMyTeam?.opponent ?? urlTeamB ?? 'LOTTE GIANTS');
+  const [teamAName, setTeamAName] = useState(fromMyTeam?.teamName ?? urlTeamA ?? 'SSG');
+  const [teamBName, setTeamBName] = useState(fromMyTeam?.opponent ?? urlTeamB ?? '롯데');
   const [teamALineup, setTeamALineup] = useState(fromMyTeam?.lineup ?? DEFAULT_LINEUP_A);
   const [teamBLineup, setTeamBLineup] = useState(DEFAULT_LINEUP_B);
   const [lineupLoading, setLineupLoading] = useState(false);
+  const [pitchersA, setPitchersA] = useState<PitcherInfo[]>([]);
+  const [pitchersB, setPitchersB] = useState<PitcherInfo[]>([]);
+  const [pitcherA, setPitcherA] = useState<string>('');
+  const [pitcherB, setPitcherB] = useState<string>('');
 
   const [loading, setLoading]       = useState(false);
   const [showStats, setShowStats]   = useState(false);
@@ -119,12 +123,12 @@ export default function SimulatorPage() {
   const [done, setDone]           = useState(false);
   const [speed, setSpeed]         = useState(1);
 
-  const eventsRef   = useRef<FlatEvent[]>([]);
-  const idxRef      = useRef(0);
-  const pausedRef   = useRef(false);
-  const speedRef    = useRef(1);
-  const timerRef    = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const bannerTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const eventsRef    = useRef<FlatEvent[]>([]);
+  const idxRef       = useRef(0);
+  const pausedRef    = useRef(false);
+  const speedRef     = useRef(1);
+  const timerRef     = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const bannerTimer  = useRef<ReturnType<typeof setTimeout> | null>(null);
   const logScrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -147,7 +151,11 @@ export default function SimulatorPage() {
     fetchTeamLineup(fromMyTeam?.opponent ?? '롯데').then(setTeamBLineup).catch(() => setTeamBLineup(DEFAULT_LINEUP_B));
   }, []);
 
-  // 게임 로그 스크롤 하단 고정
+  useEffect(() => {
+    fetchTeamPitchers(teamAName).then(setPitchersA).catch(() => setPitchersA([]));
+    fetchTeamPitchers(teamBName).then(setPitchersB).catch(() => setPitchersB([]));
+  }, [teamAName, teamBName]);
+
   useEffect(() => {
     if (logScrollRef.current) {
       logScrollRef.current.scrollTop = logScrollRef.current.scrollHeight;
@@ -192,6 +200,7 @@ export default function SimulatorPage() {
       const res = await simulateGame({
         team_a_name: teamAName, team_a_lineup: teamALineup,
         team_b_name: teamBName, team_b_lineup: teamBLineup,
+        pitcher_a: pitcherA || undefined, pitcher_b: pitcherB || undefined,
       });
       setGameLog(res.game_log);
       startAnimation(res.game_log.innings);
@@ -205,7 +214,12 @@ export default function SimulatorPage() {
   async function handleMultiStats() {
     setLoading(true);
     try {
-      const res = await simulateMulti({ team_a_name: teamAName, team_a_lineup: teamALineup, team_b_name: teamBName, team_b_lineup: teamBLineup, n_games: 1000 });
+      const res = await simulateMulti({
+        team_a_name: teamAName, team_a_lineup: teamALineup,
+        team_b_name: teamBName, team_b_lineup: teamBLineup,
+        n_games: 1000,
+        pitcher_a: pitcherA || undefined, pitcher_b: pitcherB || undefined,
+      });
       setMultiStats(res); setShowStats(true);
     } catch { setError('통계 계산 중 오류가 발생했습니다.'); }
     finally { setLoading(false); }
@@ -247,6 +261,12 @@ export default function SimulatorPage() {
       total: gameLog.innings.filter(i => i.half === '말' && displayedInningSet.has(`${i.inning}-말`)).reduce((s, i) => s + i.runs, 0),
     },
   } : null;
+
+  const selectStyle = {
+    background: '#1a1a1a', color: '#f97316', border: '2px solid #374151',
+    padding: '8px 12px', fontSize: '11px', fontFamily: "'Press Start 2P',cursive",
+    outline: 'none', cursor: 'pointer',
+  };
 
   return (
     <div className="min-h-screen" style={{ background: '#0a0a0a', fontFamily: "'Press Start 2P', cursive" }}>
@@ -294,9 +314,11 @@ export default function SimulatorPage() {
             </div>
           </div>
         </div>
+
         {lineupLoading && (
           <p style={{ color:'#4b5563', fontSize:'8px', marginTop:'12px', animation:'blink 1s infinite' }}>LOADING LINEUP...</p>
         )}
+
         {!lineupLoading && (urlTeamA || fromMyTeam) && (
           <div style={{ marginTop:'16px', display:'flex', flexWrap:'wrap', gap:'8px' }}>
             {teamALineup.map((p, i) => (
@@ -304,6 +326,34 @@ export default function SimulatorPage() {
                 {i+1}. {p.name}
               </span>
             ))}
+          </div>
+        )}
+
+        {/* 투수 선택 */}
+        {!gameLog && (
+          <div style={{ marginTop:'16px', display:'flex', gap:'24px', flexWrap:'wrap' }}>
+            <div style={{ display:'flex', flexDirection:'column', gap:'6px' }}>
+              <p style={{ color:'#6b7280', fontSize:'11px', letterSpacing:'1px' }}>{teamAName} 선발투수</p>
+              <select value={pitcherA} onChange={e => setPitcherA(e.target.value)} style={selectStyle}>
+                <option value="">선택 안함</option>
+                {pitchersA.map(p => (
+                  <option key={p.player_name} value={p.player_name}>
+                    {p.player_name} (ERA {p.era} / GS {p.gs})
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div style={{ display:'flex', flexDirection:'column', gap:'6px' }}>
+              <p style={{ color:'#6b7280', fontSize:'8px', letterSpacing:'1px' }}>{teamBName} 선발투수</p>
+              <select value={pitcherB} onChange={e => setPitcherB(e.target.value)} style={selectStyle}>
+                <option value="">선택 안함</option>
+                {pitchersB.map(p => (
+                  <option key={p.player_name} value={p.player_name}>
+                    {p.player_name} (ERA {p.era} / GS {p.gs})
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
         )}
       </div>
@@ -336,7 +386,6 @@ export default function SimulatorPage() {
           <>
             <Scoreboard away={scoreboard.away} home={scoreboard.home} />
 
-            {/* 현황 패널 */}
             {currentPA && (
               <div className="retro-box" style={{ padding:'20px 24px', display:'flex', alignItems:'center', gap:'32px' }}>
                 <div>
@@ -352,8 +401,6 @@ export default function SimulatorPage() {
                     ))}
                   </div>
                 </div>
-
-                {/* 도트 야구장 미니맵 */}
                 <div>
                   <p style={{ color:'#6b7280', fontSize:'9px', marginBottom:'10px', letterSpacing:'1px' }}>BASE</p>
                   <svg viewBox="0 0 70 70" width="70" height="70">
@@ -370,7 +417,6 @@ export default function SimulatorPage() {
                     <rect x="28" y="57" width="12" height="12" rx="1" fill="#1f2937" stroke="#4b5563" strokeWidth="1.5"/>
                   </svg>
                 </div>
-
                 <div>
                   <p style={{ color:'#6b7280', fontSize:'9px', marginBottom:'6px', letterSpacing:'1px' }}>RUNNER</p>
                   <p style={{ color:'#e5e7eb', fontSize:'10px' }}>{currentPA.bases_after || '없음'}</p>
@@ -382,10 +428,7 @@ export default function SimulatorPage() {
               </div>
             )}
 
-            {/* 경기 로그 */}
             <div className="retro-box" style={{ padding:'24px', position:'relative', overflow:'hidden' }}>
-
-              {/* 배너 — 게임 로그 영역에만 오버레이 */}
               {banner && bannerCfg[banner.event] && (() => {
                 const cfg = bannerCfg[banner.event];
                 return (
@@ -422,11 +465,7 @@ export default function SimulatorPage() {
                 </div>
               </div>
 
-              {/* 스크롤 컨테이너 — 하단 고정 */}
-              <div
-                ref={logScrollRef}
-                style={{ maxHeight:'400px', overflowY:'auto', paddingRight:'8px', display:'flex', flexDirection:'column', gap:'4px' }}
-              >
+              <div ref={logScrollRef} style={{ maxHeight:'400px', overflowY:'auto', paddingRight:'8px', display:'flex', flexDirection:'column', gap:'4px' }}>
                 {displayed.map((ev, evIdx) => {
                   const evKey = `ev-${evIdx}`;
                   if (ev.type === 'inning_header') {
@@ -465,7 +504,6 @@ export default function SimulatorPage() {
               </div>
             </div>
 
-            {/* 하단 버튼 */}
             <div style={{ display:'flex', gap:'16px' }}>
               <button onClick={handleReset} className="retro-btn"
                 style={{ background:'#1a1a1a', color:'#9ca3af', fontSize:'9px', padding:'14px 28px', border:'2px solid #374151', boxShadow:'4px 4px 0 #000' }}>
