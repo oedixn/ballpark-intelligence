@@ -6,7 +6,7 @@ export interface PlayerRecord { name:string; ab:number; hits:number; double:numb
 export interface PlateAppearance { inning:number; half:string; batter_order:number; batter_name:string; event:string; runs_scored:number; outs_after:number; bases_after:string; }
 export interface InningLog { inning:number; half:string; team_name:string; runs:number; plate_appearances:PlateAppearance[]; }
 export interface GameLog { team_a:string; team_b:string; final_score:[number,number]; innings:InningLog[]; }
-export interface PitcherInfo { player_name:string; era:number; gs:number; g:number; w:number; l:number; whip:number; so:number; ip:string; }
+export interface PitcherInfo { player_id:string; player_name:string; era:number; gs:number; g:number; w:number; l:number; whip:number; so:number; ip:string; }
 
 export interface SimulateRequest {
   team_a_name:string; team_a_lineup:PlayerRecord[];
@@ -14,6 +14,8 @@ export interface SimulateRequest {
   innings?:number;
   pitcher_a?:string;
   pitcher_b?:string;
+  pitcher_a_id?:string;
+  pitcher_b_id?:string;
 }
 
 export interface SimulateResponse { team_a_name:string; team_b_name:string; game_log:GameLog; }
