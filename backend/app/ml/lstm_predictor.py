@@ -1,13 +1,12 @@
 import numpy as np
-import psycopg2
 import psycopg2.extras
 from sklearn.preprocessing import MinMaxScaler
 import warnings
 warnings.filterwarnings('ignore')
 
-import os
-DB_CONFIG = {"host":os.getenv("DB_HOST","localhost"),"port":int(os.getenv("DB_PORT",5432)),"dbname":os.getenv("DB_NAME","ballpark"),"user":os.getenv("DB_USER","ballpark"),"password":os.getenv("DB_PASSWORD","ballpark1234")}
-def get_conn(): return psycopg2.connect(**DB_CONFIG)
+from app.db import get_connection
+
+def get_conn(): return get_connection()
 
 HITTER_FEATURES  = ['avg','obp','slg','ops','bb_rate','k_rate','iso','woba']
 HITTER_TARGETS   = ['avg','ops','woba']
