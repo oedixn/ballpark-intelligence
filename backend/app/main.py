@@ -5,7 +5,7 @@ from pydantic import BaseModel
 from typing import List, Optional
 from decimal import Decimal
 from datetime import datetime
-import sys, os, psycopg2, psycopg2.extras, re, urllib.request, urllib.parse, json as J, math
+import sys, os, psycopg2.extras, re, urllib.request, urllib.parse, json as J, math
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from game_simulator.simulator_main import (
@@ -13,6 +13,7 @@ from game_simulator.simulator_main import (
     MatchSimulator, LineupMonteCarloSimulator, LineupMarkovModel,
     PitcherProb, adjust_lineup_by_pitcher, LeagueAverageProb,
 )
+from app.db import get_connection
 
 def clean(v):
     if isinstance(v, Decimal): return None if v.is_nan() else float(v)
@@ -34,11 +35,8 @@ app.add_middleware(CORSMiddleware,
     allow_origins=["http://localhost:5173", "https://ballpark-intelligence.vercel.app", os.getenv("FRONTEND_URL","")],
     allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
-DB = dict(host=os.getenv("DB_HOST","localhost"), port=int(os.getenv("DB_PORT",5432)),
-          dbname=os.getenv("DB_NAME","ballpark"), user=os.getenv("DB_USER","ballpark"),
-          password=os.getenv("DB_PASSWORD","ballpark1234"))
 SEASON = 2026
-def get_conn(): return psycopg2.connect(**DB)
+def get_conn(): return get_connection()
 def get_cur(c): return c.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
 WOBA = "(pst.bb*0.69+pst.hbp*0.72+(pst.h-pst.double_hit-pst.triple_hit-pst.hr)*0.87+pst.double_hit*1.217+pst.triple_hit*1.529+pst.hr*1.74)/NULLIF(pst.pa,0)"
@@ -91,23 +89,38 @@ PITCHER_Q = """
 def sc(search, a="p", t="t"):
     return f" AND ({a}.player_name ILIKE %s OR {t}.team_name ILIKE %s)" if search else ""
 
-def _fetch_pitcher_prob(pitcher_name: str, team_name: str) -> Optional[PitcherProb]:
+def _fetch_pitcher_prob(
+    pitcher_name: Optional[str],
+    team_name: str,
+    player_id: Optional[str] = None,
+) -> Optional[PitcherProb]:
     try:
         c=get_conn(); cr=get_cur(c)
-        cr.execute("""
-            SELECT p.player_name, ps.h, ps.bb, ps.hr, ps.tbf, ps.ip, ps.era, ps.g, ps.gs
+        base_query = """
+            SELECT p.player_name, t.team_name, ps.h, ps.bb, ps.hr, ps.tbf,
+                   ps.ip, ps.era, ps.g, ps.gs
             FROM player_pitcher_stats ps
             JOIN players p ON ps.player_id = p.player_id
-            WHERE p.player_name = %s AND ps.season_year = %s
-            ORDER BY ps.gs DESC LIMIT 1
-        """, (pitcher_name, SEASON))
+            JOIN teams t ON ps.team_id = t.team_id
+            WHERE t.team_name = %s AND ps.season_year = %s
+        """
+        if player_id:
+            cr.execute(base_query + " AND ps.player_id = %s ORDER BY ps.gs DESC LIMIT 1",
+                       (team_name, SEASON, player_id))
+        elif pitcher_name:
+            # 구버전 클라이언트 호환용 이름 조회. 이 경우에도 반드시 팀을 제한한다.
+            cr.execute(base_query + " AND p.player_name = %s ORDER BY ps.gs DESC LIMIT 1",
+                       (team_name, SEASON, pitcher_name))
+        else:
+            cr.close(); c.close()
+            return None
         r=cr.fetchone(); cr.close(); c.close()
         if not r: return None
         tbf=r['tbf'] or 0
         if tbf<=0: return None
         h=r['h'] or 0; bb=r['bb'] or 0; hr=r['hr'] or 0
         single=max(0,(h-hr)*0.8); double_=max(0,(h-hr)*0.2); out=max(0,tbf-h-bb)
-        return PitcherProb(name=pitcher_name, team_name=team_name,
+        return PitcherProb(name=r['player_name'], team_name=r['team_name'],
             bb=bb/tbf, single=single/tbf, double=double_/tbf,
             triple=0.003, hr=hr/tbf, out=out/tbf,
             era=float(r['era'] or 4.0), gs=int(r['gs'] or 0), g=int(r['g'] or 0))
@@ -138,6 +151,8 @@ class SimReq(BaseModel):
     innings:int=9
     pitcher_a:Optional[str]=None
     pitcher_b:Optional[str]=None
+    pitcher_a_id:Optional[str]=None
+    pitcher_b_id:Optional[str]=None
 
 class MultiReq(BaseModel):
     team_a_name:str; team_a_lineup:List[PlayerRecord]
@@ -145,6 +160,8 @@ class MultiReq(BaseModel):
     n_games:int=1000; innings:int=9
     pitcher_a:Optional[str]=None
     pitcher_b:Optional[str]=None
+    pitcher_a_id:Optional[str]=None
+    pitcher_b_id:Optional[str]=None
 
 class RecordCreate(BaseModel):
     team_name:str; opponent_name:str; result:str; my_score:int; opp_score:int
@@ -225,7 +242,7 @@ def get_team_pitchers(team_name:str):
     try:
         c=get_conn(); cr=get_cur(c)
         cr.execute("""
-            SELECT p.player_name, ps.era, ps.g, ps.gs, ps.w, ps.l, ps.whip, ps.so, ps.ip
+            SELECT p.player_id, p.player_name, ps.era, ps.g, ps.gs, ps.w, ps.l, ps.whip, ps.so, ps.ip
             FROM player_pitcher_stats ps
             JOIN players p ON ps.player_id = p.player_id
             JOIN teams t ON ps.team_id = t.team_id
@@ -242,11 +259,11 @@ def simulate_game(req:SimReq):
     ta=[record_to_player_prob(BattingRecord(**p.dict())) for p in req.team_a_lineup]
     tb=[record_to_player_prob(BattingRecord(**p.dict())) for p in req.team_b_lineup]
     league_avg=_get_league_avg()
-    if req.pitcher_b and league_avg:
-        pp=_fetch_pitcher_prob(req.pitcher_b, req.team_b_name)
+    if (req.pitcher_b_id or req.pitcher_b) and league_avg:
+        pp=_fetch_pitcher_prob(req.pitcher_b, req.team_b_name, req.pitcher_b_id)
         if pp: ta=adjust_lineup_by_pitcher(ta, pp, league_avg)
-    if req.pitcher_a and league_avg:
-        pp=_fetch_pitcher_prob(req.pitcher_a, req.team_a_name)
+    if (req.pitcher_a_id or req.pitcher_a) and league_avg:
+        pp=_fetch_pitcher_prob(req.pitcher_a, req.team_a_name, req.pitcher_a_id)
         if pp: tb=adjust_lineup_by_pitcher(tb, pp, league_avg)
     g=MatchSimulator(team_a_name=req.team_a_name,team_a_lineup=ta,team_b_name=req.team_b_name,team_b_lineup=tb).simulate_game(innings=req.innings)
     return {"team_a_name":req.team_a_name,"team_b_name":req.team_b_name,"game_log":g,"is_draw":g.final_score[0]==g.final_score[1]}
@@ -256,11 +273,11 @@ def simulate_multi(req:MultiReq):
     ta=[record_to_player_prob(BattingRecord(**p.dict())) for p in req.team_a_lineup]
     tb=[record_to_player_prob(BattingRecord(**p.dict())) for p in req.team_b_lineup]
     league_avg=_get_league_avg()
-    if req.pitcher_b and league_avg:
-        pp=_fetch_pitcher_prob(req.pitcher_b, req.team_b_name)
+    if (req.pitcher_b_id or req.pitcher_b) and league_avg:
+        pp=_fetch_pitcher_prob(req.pitcher_b, req.team_b_name, req.pitcher_b_id)
         if pp: ta=adjust_lineup_by_pitcher(ta, pp, league_avg)
-    if req.pitcher_a and league_avg:
-        pp=_fetch_pitcher_prob(req.pitcher_a, req.team_a_name)
+    if (req.pitcher_a_id or req.pitcher_a) and league_avg:
+        pp=_fetch_pitcher_prob(req.pitcher_a, req.team_a_name, req.pitcher_a_id)
         if pp: tb=adjust_lineup_by_pitcher(tb, pp, league_avg)
     ra=LineupMonteCarloSimulator(ta,seed=42).simulate_many(n_games=req.n_games,innings=req.innings)
     rb=LineupMonteCarloSimulator(tb,seed=42).simulate_many(n_games=req.n_games,innings=req.innings)
