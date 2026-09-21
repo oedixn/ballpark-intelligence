@@ -20,6 +20,7 @@ python kbo_db_crawler.py
 import csv
 import os
 import re
+import sys
 import time
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -41,6 +42,18 @@ try:
     from dotenv import load_dotenv
 except ImportError:
     load_dotenv = None
+
+if load_dotenv is not None:
+    load_dotenv()
+
+BACKEND_DIR = Path(__file__).resolve().parents[1]
+if str(BACKEND_DIR) not in sys.path:
+    sys.path.insert(0, str(BACKEND_DIR))
+
+if psycopg2 is not None:
+    from app.db import get_connection as shared_get_connection
+else:
+    shared_get_connection = None
 
 
 # ============================================================
@@ -306,26 +319,13 @@ def save_csv(rows: List[dict], filename: str, columns: Optional[List[str]] = Non
 # PostgreSQL UPSERT / 동기화 로그
 # ============================================================
 
-def get_db_config() -> dict:
-    if load_dotenv is not None:
-        load_dotenv()
-
-    return {
-        "host": os.getenv("DB_HOST", "localhost"),
-        "port": int(os.getenv("DB_PORT", "5432")),
-        "dbname": os.getenv("DB_NAME", "kbo_db"),
-        "user": os.getenv("DB_USER", "postgres"),
-        "password": os.getenv("DB_PASSWORD", "postgres"),
-    }
-
-
 def get_db_connection():
-    if psycopg2 is None:
+    if shared_get_connection is None:
         raise RuntimeError(
             "psycopg2가 설치되어 있지 않습니다. "
             "pip install psycopg2-binary python-dotenv 실행 후 다시 시도하세요."
         )
-    return psycopg2.connect(**get_db_config())
+    return shared_get_connection()
 
 
 def q_ident(name: str) -> str:
