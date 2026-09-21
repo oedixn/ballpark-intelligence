@@ -14,8 +14,8 @@ KBO / KBReport 크롤링 결과 CSV를 PostgreSQL DB에 자동 적재하는 스�
     pip install psycopg2-binary
 
 사용 전 수정할 것
-    아래 DB_CONFIG 값을 본인 PostgreSQL 설정에 맞게 바꾸세요.
-    CSV_DIR도 CSV 파일이 들어있는 폴더로 맞추세요.
+    DB 접속 정보는 DATABASE_URL 또는 DB_* 환경변수로 설정하세요.
+    CSV_DIR는 기본적으로 같은 폴더의 output_db_ready를 사용합니다.
 
 실행
     python load_kbo_to_postgres.py
@@ -24,25 +24,19 @@ KBO / KBReport 크롤링 결과 CSV를 PostgreSQL DB에 자동 적재하는 스�
 from __future__ import annotations
 
 import csv
-import os
+import sys
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
-import psycopg2
 from psycopg2 import sql
 
 
-# ============================================================
-# 1. DB 접속 설정
-# ============================================================
+BACKEND_DIR = Path(__file__).resolve().parents[1]
+if str(BACKEND_DIR) not in sys.path:
+    sys.path.insert(0, str(BACKEND_DIR))
 
-DB_CONFIG = {
-    "host":     os.environ.get("DB_HOST", "localhost"),
-    "port":     int(os.environ.get("DB_PORT", 5432)),
-    "dbname":   os.environ.get("DB_NAME", "ballpark"),
-    "user":     os.environ.get("DB_USER", "ballpark"),
-    "password": os.environ.get("DB_PASSWORD", "ballpark1234"),
-}
+from app.db import get_connection
+
 
 # 크롤링 결과 CSV 폴더
 CSV_DIR = Path(__file__).parent / "output_db_ready"
@@ -438,7 +432,7 @@ def main() -> None:
     print("====================================")
     print(f"CSV_DIR = {CSV_DIR.resolve()}")
 
-    conn = psycopg2.connect(**DB_CONFIG)
+    conn = get_connection()
 
     try:
         for csv_name, table_name in LOAD_PLAN:
@@ -458,4 +452,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
