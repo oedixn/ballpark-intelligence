@@ -1,15 +1,10 @@
 import numpy as np
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics.pairwise import cosine_similarity
-import psycopg2
 import psycopg2.extras
+from app.db import get_connection
 
-DB_CONFIG = {
-    "host": "localhost", "port": 5432,
-    "dbname": "ballpark", "user": "ballpark", "password": "ballpark1234",
-}
-
-def get_conn(): return psycopg2.connect(**DB_CONFIG)
+def get_conn(): return get_connection()
 
 def get_all_hitter_features():
     """전체 시즌 타자 피처 데이터"""
