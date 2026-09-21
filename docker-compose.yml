@@ -11,6 +11,8 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ./backend/db/init/01_schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
+      - ./backend/db/init/02_app_tables.sql:/docker-entrypoint-initdb.d/02_app_tables.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ballpark"]
       interval: 10s
@@ -30,6 +32,23 @@ services:
       retries: 5
 
   # ── Backend (FastAPI) ────────────────────────────────
+  db-loader:
+    build: ./backend
+    container_name: ballpark_db_loader
+    environment:
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_NAME: ballpark
+      DB_USER: ballpark
+      DB_PASSWORD: ballpark1234
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+    command: python db/load_kbo_to_postgres.py
+    restart: "no"
+
   backend:
     build: ./backend
     container_name: ballpark_backend
@@ -45,8 +64,8 @@ services:
       DB_PASSWORD: ballpark1234
       TF_FORCE_GPU_ALLOW_GROWTH: "true"
     depends_on:
-      db:
-        condition: service_healthy
+      db-loader:
+        condition: service_completed_successfully
       redis:
         condition: service_healthy
     volumes:
@@ -84,8 +103,8 @@ services:
       DB_USER: ballpark
       DB_PASSWORD: ballpark1234
     depends_on:
-      db:
-        condition: service_healthy
+      db-loader:
+        condition: service_completed_successfully
     volumes:
       - ./backend:/app
     command: cron -f
