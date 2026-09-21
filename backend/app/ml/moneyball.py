@@ -1,16 +1,8 @@
 import numpy as np
 from sklearn.cluster import KMeans
 from sklearn.preprocessing import StandardScaler
-import psycopg2
 import psycopg2.extras
-
-DB_CONFIG = {
-    "host": "localhost",
-    "port": 5432,
-    "dbname": "ballpark",
-    "user": "ballpark",
-    "password": "ballpark1234",
-}
+from app.db import get_connection
 
 LATEST_SEASON = 2026
 
@@ -24,7 +16,7 @@ CLUSTER_TYPES = {
 }
 
 def get_conn():
-    return psycopg2.connect(**DB_CONFIG)
+    return get_connection()
 
 def get_hitter_features(season: int = LATEST_SEASON):
     """전체 타자 피처 데이터 가져오기"""
