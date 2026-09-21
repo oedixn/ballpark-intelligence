@@ -107,8 +107,8 @@ export default function SimulatorPage() {
   const [lineupLoading, setLineupLoading] = useState(false);
   const [pitchersA, setPitchersA] = useState<PitcherInfo[]>([]);
   const [pitchersB, setPitchersB] = useState<PitcherInfo[]>([]);
-  const [pitcherA, setPitcherA] = useState<string>('');
-  const [pitcherB, setPitcherB] = useState<string>('');
+  const [pitcherAId, setPitcherAId] = useState<string>('');
+  const [pitcherBId, setPitcherBId] = useState<string>('');
 
   const [loading, setLoading]       = useState(false);
   const [showStats, setShowStats]   = useState(false);
@@ -152,6 +152,8 @@ export default function SimulatorPage() {
   }, []);
 
   useEffect(() => {
+    setPitcherAId('');
+    setPitcherBId('');
     fetchTeamPitchers(teamAName).then(setPitchersA).catch(() => setPitchersA([]));
     fetchTeamPitchers(teamBName).then(setPitchersB).catch(() => setPitchersB([]));
   }, [teamAName, teamBName]);
@@ -197,10 +199,13 @@ export default function SimulatorPage() {
   async function handleStart() {
     setLoading(true); setError(null); setGameLog(null); setDisplayed([]);
     try {
+      const selectedPitcherA = pitchersA.find(p => p.player_id === pitcherAId);
+      const selectedPitcherB = pitchersB.find(p => p.player_id === pitcherBId);
       const res = await simulateGame({
         team_a_name: teamAName, team_a_lineup: teamALineup,
         team_b_name: teamBName, team_b_lineup: teamBLineup,
-        pitcher_a: pitcherA || undefined, pitcher_b: pitcherB || undefined,
+        pitcher_a: selectedPitcherA?.player_name, pitcher_b: selectedPitcherB?.player_name,
+        pitcher_a_id: selectedPitcherA?.player_id, pitcher_b_id: selectedPitcherB?.player_id,
       });
       setGameLog(res.game_log);
       startAnimation(res.game_log.innings);
@@ -214,11 +219,14 @@ export default function SimulatorPage() {
   async function handleMultiStats() {
     setLoading(true);
     try {
+      const selectedPitcherA = pitchersA.find(p => p.player_id === pitcherAId);
+      const selectedPitcherB = pitchersB.find(p => p.player_id === pitcherBId);
       const res = await simulateMulti({
         team_a_name: teamAName, team_a_lineup: teamALineup,
         team_b_name: teamBName, team_b_lineup: teamBLineup,
         n_games: 1000,
-        pitcher_a: pitcherA || undefined, pitcher_b: pitcherB || undefined,
+        pitcher_a: selectedPitcherA?.player_name, pitcher_b: selectedPitcherB?.player_name,
+        pitcher_a_id: selectedPitcherA?.player_id, pitcher_b_id: selectedPitcherB?.player_id,
       });
       setMultiStats(res); setShowStats(true);
     } catch { setError('통계 계산 중 오류가 발생했습니다.'); }
@@ -334,10 +342,10 @@ export default function SimulatorPage() {
           <div style={{ marginTop:'16px', display:'flex', gap:'24px', flexWrap:'wrap' }}>
             <div style={{ display:'flex', flexDirection:'column', gap:'6px' }}>
               <p style={{ color:'#6b7280', fontSize:'11px', letterSpacing:'1px' }}>{teamAName} 선발투수</p>
-              <select value={pitcherA} onChange={e => setPitcherA(e.target.value)} style={selectStyle}>
+              <select value={pitcherAId} onChange={e => setPitcherAId(e.target.value)} style={selectStyle}>
                 <option value="">선택 안함</option>
                 {pitchersA.map(p => (
-                  <option key={p.player_name} value={p.player_name}>
+                  <option key={p.player_id} value={p.player_id}>
                     {p.player_name} (ERA {p.era} / GS {p.gs})
                   </option>
                 ))}
@@ -345,10 +353,10 @@ export default function SimulatorPage() {
             </div>
             <div style={{ display:'flex', flexDirection:'column', gap:'6px' }}>
               <p style={{ color:'#6b7280', fontSize:'8px', letterSpacing:'1px' }}>{teamBName} 선발투수</p>
-              <select value={pitcherB} onChange={e => setPitcherB(e.target.value)} style={selectStyle}>
+              <select value={pitcherBId} onChange={e => setPitcherBId(e.target.value)} style={selectStyle}>
                 <option value="">선택 안함</option>
                 {pitchersB.map(p => (
-                  <option key={p.player_name} value={p.player_name}>
+                  <option key={p.player_id} value={p.player_id}>
                     {p.player_name} (ERA {p.era} / GS {p.gs})
                   </option>
                 ))}
