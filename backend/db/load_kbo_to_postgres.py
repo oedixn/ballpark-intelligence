@@ -40,6 +40,7 @@ from app.db import get_connection
 
 # 크롤링 결과 CSV 폴더
 CSV_DIR = Path(__file__).parent / "output_db_ready"
+APP_SCHEMA_PATH = Path(__file__).parent / "init" / "02_app_tables.sql"
 
 # CSV 파일명이 (1) 붙은 업로드본인 경우에도 자동으로 찾기 위한 후보 목록
 CSV_ALIASES = {
@@ -435,6 +436,12 @@ def main() -> None:
     conn = get_connection()
 
     try:
+        # PostgreSQL init 스크립트는 빈 볼륨에서만 자동 실행된다.
+        # 기존 볼륨도 회원/전적 마이그레이션을 받도록 매번 멱등 적용한다.
+        with conn.cursor() as cur:
+            cur.execute(APP_SCHEMA_PATH.read_text(encoding="utf-8"))
+        conn.commit()
+
         for csv_name, table_name in LOAD_PLAN:
             load_table(conn, csv_name, table_name)
 
