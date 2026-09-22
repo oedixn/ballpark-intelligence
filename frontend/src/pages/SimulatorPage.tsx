@@ -6,6 +6,7 @@ import { simulateGame, simulateMulti, fetchTeamPitchers } from '../api/simulator
 import { saveRecord } from '../api/recordApi';
 import { fetchTeamLineup } from '../api/playerApi';
 import type { GameLog, InningLog, PlateAppearance, MultiSimulateResponse, PitcherInfo } from '../api/simulatorApi';
+import { useAuth } from '../context/AuthContext';
 
 const DEFAULT_LINEUP_A = [
   { name: "박성한",   ab: 400, hits: 120, double: 20, triple: 2, hr: 5,  bb: 40, hbp: 3 },
@@ -88,6 +89,7 @@ function buildEvents(innings: InningLog[]): FlatEvent[] {
 }
 
 export default function SimulatorPage() {
+  const { isAuthenticated } = useAuth();
   const location       = useLocation();
   const [searchParams] = useSearchParams();
 
@@ -211,7 +213,13 @@ export default function SimulatorPage() {
       startAnimation(res.game_log.innings);
       const scoreA = res.game_log.final_score[0];
       const scoreB = res.game_log.final_score[1];
-      await saveRecord({ team_name: teamAName, opponent_name: teamBName, result: scoreA > scoreB ? '승' : scoreA < scoreB ? '패' : '무', my_score: scoreA, opp_score: scoreB });
+      if (isAuthenticated) {
+        try {
+          await saveRecord({ team_name: teamAName, opponent_name: teamBName, result: scoreA > scoreB ? '승' : scoreA < scoreB ? '패' : '무', my_score: scoreA, opp_score: scoreB });
+        } catch {
+          console.warn('경기 결과는 생성됐지만 전적 저장에 실패했습니다.');
+        }
+      }
     } catch { setError('시뮬레이션 중 오류가 발생했습니다.'); }
     finally { setLoading(false); }
   }
