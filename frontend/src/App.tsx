@@ -9,7 +9,10 @@ import NotFoundPage from './pages/NotFoundPage';
 import MyTeamPage from './pages/MyTeamPage';
 import StatsPage from './pages/StatsPage';
 import SchedulePage from './pages/SchedulePage';
+import LoginPage from './pages/LoginPage';
+import ProtectedRoute from './components/common/ProtectedRoute';
 import { useSearchHistory } from './hooks/useSearchHistory';
+import { useAuth } from './context/AuthContext';
 
 const api = axios.create({ baseURL: import.meta.env.VITE_API_URL });
 
@@ -26,6 +29,7 @@ function NavBar() {
   const [results, setResults]       = useState<SearchPlayer[]>([]);
   const [searching, setSearching]   = useState(false);
   const navigate                    = useNavigate();
+  const { user, isAuthenticated, logout } = useAuth();
   const { history, addHistory, removeHistory, clearHistory } = useSearchHistory();
   const inputRef    = useRef<HTMLInputElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -198,6 +202,20 @@ function NavBar() {
           </div>
         )}
       </div>
+
+      {isAuthenticated ? (
+        <div className="flex items-center gap-2 shrink-0">
+          <span className="text-gray-300 text-sm"><strong className="text-white">{user?.display_name}</strong>님</span>
+          <button onClick={() => { logout(); navigate('/home'); }}
+            className="text-xs bg-gray-700 hover:bg-gray-600 text-gray-300 px-3 py-2 rounded-lg transition-colors">
+            로그아웃
+          </button>
+        </div>
+      ) : (
+        <Link to="/login" className="text-sm bg-orange-500 hover:bg-orange-600 text-white font-bold px-4 py-2 rounded-lg transition-colors shrink-0">
+          로그인
+        </Link>
+      )}
     </nav>
   );
 }
@@ -213,9 +231,10 @@ export default function App() {
         <Route path="/player/:playerId" element={<PlayerPage />} />
         <Route path="/simulator"    element={<SimulatorPage />} />
         <Route path="/lineup"       element={<LineupPage />} />
-        <Route path="/my-team"      element={<MyTeamPage />} />
+        <Route path="/my-team"      element={<ProtectedRoute><MyTeamPage /></ProtectedRoute>} />
         <Route path="/stats"        element={<StatsPage />} />
         <Route path="/schedule"     element={<SchedulePage />} />
+        <Route path="/login"        element={<LoginPage />} />
         <Route path="*"             element={<NotFoundPage />} />
       </Routes>
     </BrowserRouter>
