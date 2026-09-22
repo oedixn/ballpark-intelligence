@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response, JSONResponse
 from pydantic import BaseModel
@@ -14,6 +14,7 @@ from game_simulator.simulator_main import (
     PitcherProb, adjust_lineup_by_pitcher, LeagueAverageProb,
 )
 from app.db import get_connection
+from app.auth import create_access_token, get_current_user, hash_password, verify_password
 
 def clean(v):
     if isinstance(v, Decimal): return None if v.is_nan() else float(v)
@@ -166,11 +167,99 @@ class MultiReq(BaseModel):
 class RecordCreate(BaseModel):
     team_name:str; opponent_name:str; result:str; my_score:int; opp_score:int
 
+class RegisterRequest(BaseModel):
+    email:str
+    password:str
+    display_name:str
+
+class LoginRequest(BaseModel):
+    email:str
+    password:str
+
 @app.get("/")
 def root(): return {"message":"BallPark Intelligence API is running"}
 
 @app.get("/health")
 def health(): return {"status":"ok"}
+
+def _public_user(user):
+    return {
+        "id": user["id"],
+        "email": user["email"],
+        "display_name": user["display_name"],
+        "created_at": user["created_at"],
+    }
+
+@app.post("/api/auth/register", status_code=201)
+def register(req:RegisterRequest):
+    email=req.email.strip().lower()
+    display_name=req.display_name.strip()
+    if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email):
+        raise HTTPException(400,"올바른 이메일을 입력해주세요.")
+    if len(req.password)<8 or len(req.password)>128:
+        raise HTTPException(400,"비밀번호는 8자 이상 128자 이하로 입력해주세요.")
+    if len(display_name)<2 or len(display_name)>30:
+        raise HTTPException(400,"닉네임은 2자 이상 30자 이하로 입력해주세요.")
+
+    c=None; cr=None
+    try:
+        c=get_conn(); cr=get_cur(c)
+        cr.execute("""
+            SELECT email,display_name
+            FROM users
+            WHERE LOWER(email)=LOWER(%s)
+               OR LOWER(display_name)=LOWER(%s)
+            LIMIT 1
+        """,(email,display_name))
+        existing_user=cr.fetchone()
+        if existing_user:
+            if existing_user["email"].lower()==email:
+                raise HTTPException(409,"이미 가입된 이메일입니다.")
+            raise HTTPException(409,"이미 사용 중인 닉네임입니다.")
+
+        cr.execute("""
+            INSERT INTO users(email,display_name,password_hash)
+            VALUES(%s,%s,%s)
+            RETURNING id,email,display_name,created_at
+        """,(email,display_name,hash_password(req.password)))
+        user=cr.fetchone(); c.commit()
+        return {"access_token":create_access_token(user["id"]),"token_type":"bearer","user":_public_user(user)}
+    except psycopg2.IntegrityError as e:
+        if c: c.rollback()
+        if e.diag.constraint_name=="idx_users_display_name_lower":
+            raise HTTPException(409,"이미 사용 중인 닉네임입니다.")
+        raise HTTPException(409,"이미 가입된 이메일입니다.")
+    except HTTPException: raise
+    except Exception:
+        if c: c.rollback()
+        raise HTTPException(500,"회원가입 처리 중 오류가 발생했습니다.")
+    finally:
+        if cr: cr.close()
+        if c: c.close()
+
+@app.post("/api/auth/login")
+def login(req:LoginRequest):
+    c=None; cr=None
+    try:
+        c=get_conn(); cr=get_cur(c)
+        cr.execute("""
+            SELECT id,email,display_name,password_hash,created_at
+            FROM users WHERE LOWER(email)=LOWER(%s)
+        """,(req.email.strip(),))
+        user=cr.fetchone()
+        if not user or not verify_password(req.password,user["password_hash"]):
+            raise HTTPException(401,"이메일 또는 비밀번호가 올바르지 않습니다.")
+        return {"access_token":create_access_token(user["id"]),"token_type":"bearer","user":_public_user(user)}
+    except HTTPException: raise
+    except Exception:
+        raise HTTPException(500,"로그인 처리 중 오류가 발생했습니다.")
+    finally:
+        if cr: cr.close()
+        if c: c.close()
+
+@app.get("/api/auth/me")
+def get_me(current_user=Depends(get_current_user)):
+    return {"user":_public_user(current_user)}
 
 @app.get("/api/players")
 def get_players(search: Optional[str]=None):
@@ -287,32 +376,54 @@ def simulate_multi(req:MultiReq):
     return {"team_a":st(req.team_a_name,ra,ma,da),"team_b":st(req.team_b_name,rb,mb,db),"n_games":req.n_games}
 
 @app.post("/api/records")
-def save_record(req:RecordCreate):
+def save_record(req:RecordCreate,current_user=Depends(get_current_user)):
+    c=None; cr=None
     try:
         c=get_conn(); cr=c.cursor()
-        cr.execute("INSERT INTO game_records(team_name,opponent_name,result,my_score,opp_score) VALUES(%s,%s,%s,%s,%s) RETURNING id",(req.team_name,req.opponent_name,req.result,req.my_score,req.opp_score))
-        rid=cr.fetchone()[0]; c.commit(); cr.close(); c.close()
+        cr.execute("INSERT INTO game_records(user_id,team_name,opponent_name,result,my_score,opp_score) VALUES(%s,%s,%s,%s,%s,%s) RETURNING id",(current_user["id"],req.team_name,req.opponent_name,req.result,req.my_score,req.opp_score))
+        rid=cr.fetchone()[0]; c.commit()
         return {"id":rid,"message":"전적이 저장되었습니다."}
-    except Exception as e: raise HTTPException(500,str(e))
+    except Exception:
+        if c: c.rollback()
+        raise HTTPException(500,"전적 저장 중 오류가 발생했습니다.")
+    finally:
+        if cr: cr.close()
+        if c: c.close()
 
 @app.get("/api/records")
-def get_records(team_name:Optional[str]=None):
+def get_records(team_name:Optional[str]=None,current_user=Depends(get_current_user)):
+    c=None; cr=None
     try:
         c=get_conn(); cr=get_cur(c)
-        if team_name: cr.execute("SELECT * FROM game_records WHERE team_name=%s ORDER BY played_at DESC LIMIT 20",(team_name,))
-        else:         cr.execute("SELECT * FROM game_records ORDER BY played_at DESC LIMIT 20")
-        r=cr.fetchall(); cr.close(); c.close()
+        if team_name: cr.execute("SELECT id,team_name,opponent_name,result,my_score,opp_score,played_at FROM game_records WHERE user_id=%s AND team_name=%s ORDER BY played_at DESC LIMIT 20",(current_user["id"],team_name))
+        else:         cr.execute("SELECT id,team_name,opponent_name,result,my_score,opp_score,played_at FROM game_records WHERE user_id=%s ORDER BY played_at DESC LIMIT 20",(current_user["id"],))
+        r=cr.fetchall()
         return {"records":rows(r)}
-    except Exception as e: raise HTTPException(500,str(e))
+    except Exception:
+        raise HTTPException(500,"전적 조회 중 오류가 발생했습니다.")
+    finally:
+        if cr: cr.close()
+        if c: c.close()
 
 @app.delete("/api/records/{record_id}")
-def delete_record(record_id:int):
+def delete_record(record_id:int,current_user=Depends(get_current_user)):
+    c=None; cr=None
     try:
         c=get_conn(); cr=c.cursor()
-        cr.execute("DELETE FROM game_records WHERE id=%s",(record_id,))
-        c.commit(); cr.close(); c.close()
+        cr.execute("DELETE FROM game_records WHERE id=%s AND user_id=%s RETURNING id",(record_id,current_user["id"]))
+        deleted=cr.fetchone()
+        if not deleted:
+            c.rollback()
+            raise HTTPException(404,"전적을 찾을 수 없습니다.")
+        c.commit()
         return {"message":"삭제되었습니다."}
-    except Exception as e: raise HTTPException(500,str(e))
+    except HTTPException: raise
+    except Exception:
+        if c: c.rollback()
+        raise HTTPException(500,"전적 삭제 중 오류가 발생했습니다.")
+    finally:
+        if cr: cr.close()
+        if c: c.close()
 
 @app.get("/api/stats/team-rank")
 def get_team_rank():
