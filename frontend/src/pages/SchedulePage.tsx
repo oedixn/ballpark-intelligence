@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
+import { getTeamLogo } from '../utils/teamLogo';
 
 const api = axios.create({ baseURL: import.meta.env.VITE_API_URL });
 
@@ -40,9 +41,24 @@ const TEAM_COLORS: Record<string, string> = {
 
 function TeamBadge({ name }: { name: string }) {
   const color = TEAM_COLORS[name] ?? 'bg-gray-600';
+  const logo = getTeamLogo(name);
   return (
-    <span className={`${color} text-white text-xs font-black px-2 py-0.5 rounded`}>
-      {name}
+    <span className="flex items-center gap-1.5">
+      {logo && <img src={logo} alt={name} className="w-5 h-5 object-contain" />}
+      <span className={`${color} text-white text-xs font-black px-2 py-0.5 rounded`}>
+        {name}
+      </span>
+    </span>
+  );
+}
+
+function ResultBadge({ result }: { result: string }) {
+  const teamName = result.replace(/\s*승$/, '').trim();
+  const logo = getTeamLogo(teamName);
+  return (
+    <span className="inline-flex items-center gap-1">
+      {logo && <img src={logo} alt={teamName} className="w-4 h-4 object-contain" />}
+      <span>{result}</span>
     </span>
   );
 }
@@ -200,10 +216,12 @@ export default function SchedulePage() {
 
                           {/* 결과 */}
                           {game.result && !canceled && (
-                            <div className="mt-3 text-center">
-                              <span className="text-orange-400 text-xs font-bold">{game.result}</span>
+                            <div className="mt-3 flex justify-center">
+                              <span className="text-orange-400 text-xs font-bold">
+                                <ResultBadge result={game.result} />
+                              </span>
                             </div>
-                          )}
+                            )}
 
                           {/* 예정 경기 */}
                           {!finished && !canceled && (

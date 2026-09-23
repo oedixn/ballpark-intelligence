@@ -1,6 +1,7 @@
 import { useNavigate } from 'react-router-dom';
 import { useState, useEffect } from 'react';
 import axios from 'axios';
+import { getTeamLogo } from '../utils/teamLogo';
 
 const api = axios.create({ baseURL: import.meta.env.VITE_API_URL });
 
@@ -90,6 +91,16 @@ const stats = [
 ];
 
 const TYPING_TEXTS = ['경기 예측', '선수 분석', '시뮬레이션'];
+
+function TeamLabel({ name, bold }: { name: string; bold: boolean }) {
+  const logo = getTeamLogo(name);
+  return (
+    <span className={`inline-flex items-center gap-1.5 font-semibold ${bold ? 'text-white' : 'text-gray-400'}`}>
+      {logo && <img src={logo} alt={name} className="w-4 h-4 object-contain" />}
+      {name}
+    </span>
+  );
+}
 
 export default function HomePage() {
   const navigate = useNavigate();
@@ -324,7 +335,7 @@ export default function HomePage() {
                   )}
                 </div>
                 <div className="flex items-center gap-3 flex-1">
-                  <span className={`font-semibold ${aWin ? 'text-white' : 'text-gray-400'}`}>{game.team_a}</span>
+                  <TeamLabel name={game.team_a} bold={aWin} />
                   {finished && !canceled ? (
                     <span className="text-white font-black text-lg">{game.score_a} : {game.score_b}</span>
                   ) : canceled ? (
@@ -332,7 +343,7 @@ export default function HomePage() {
                   ) : (
                     <span className="text-gray-600 text-sm">vs</span>
                   )}
-                  <span className={`font-semibold ${bWin ? 'text-white' : 'text-gray-400'}`}>{game.team_b}</span>
+                  <TeamLabel name={game.team_b} bold={bWin} />
                 </div>
                 <span className="text-gray-500 text-xs shrink-0">{game.stadium}</span>
                 {finished ? (

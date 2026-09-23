@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
+import { getTeamLogo } from '../utils/teamLogo';
 
 const api = axios.create({ baseURL: import.meta.env.VITE_API_URL });
 
@@ -79,6 +80,16 @@ const PITCHER_SORT_OPTIONS: { key: PitcherSortKey; label: string }[] = [
 ];
 
 const MEDAL = ['🥇', '🥈', '🥉'];
+
+function TeamNameCell({ teamName, className }: { teamName: string; className?: string }) {
+  const logo = getTeamLogo(teamName);
+  return (
+    <span className="inline-flex items-center gap-2">
+      {logo && <img src={logo} alt={teamName} className="w-5 h-5 object-contain" />}
+      <span className={className}>{teamName}</span>
+    </span>
+  );
+}
 
 export default function StatsPage() {
   const navigate = useNavigate();
@@ -184,7 +195,7 @@ export default function StatsPage() {
                       }
                     </td>
                     <td className="px-6 py-4">
-                      <span className={`font-bold ${i === 0 ? 'text-orange-400' : 'text-white'}`}>{team.team_name}</span>
+                      <TeamNameCell teamName={team.team_name} className={`font-bold ${i === 0 ? 'text-orange-400' : 'text-white'}`} />
                     </td>
                     <td className="text-center px-4 py-4 text-gray-300">{team.games}</td>
                     <td className="text-center px-4 py-4 text-blue-400 font-bold">{team.wins}</td>
@@ -270,7 +281,9 @@ export default function StatsPage() {
                           {i < 3 && `${MEDAL[i]} `}{p.player_name}
                         </button>
                       </td>
-                      <td className="px-4 py-3 text-gray-400 text-xs">{p.team_name}</td>
+                      <td className="px-4 py-3">
+                        <TeamNameCell teamName={p.team_name} className="text-gray-400 text-xs" />
+                      </td>
                       <td className="px-4 py-3">
                         <span className="text-xs bg-gray-700 text-gray-300 px-2 py-0.5 rounded">{p.position ?? '-'}</span>
                       </td>
@@ -352,7 +365,9 @@ export default function StatsPage() {
                           {i < 3 && `${MEDAL[i]} `}{p.player_name}
                         </button>
                       </td>
-                      <td className="px-4 py-3 text-gray-400 text-xs">{p.team_name}</td>
+                      <td className="px-4 py-3">
+                        <TeamNameCell teamName={p.team_name} className="text-gray-400 text-xs" />
+                      </td>
                       <td className="text-center px-4 py-3 text-gray-300">{p.g}</td>
                       <td className="text-center px-4 py-3 text-blue-400 font-bold">{p.w}</td>
                       <td className="text-center px-4 py-3 text-red-400">{p.l}</td>
