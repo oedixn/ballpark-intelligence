@@ -10,6 +10,7 @@ import { fetchPlayers, fetchPlayerById, fetchPlayerSeasons } from '../api/player
 import type { PlayerDB, PlayerSeasons } from '../api/playerApi';
 import type { Player } from '../data/mockPlayers';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, BarChart, Bar, PieChart, Pie, Cell } from 'recharts';
+import { getTeamLogo } from '../utils/teamLogo';
 
 const MB_COLORS = ['#f97316','#60a5fa','#4ade80','#f87171','#a78bfa'];
 const API = import.meta.env.VITE_API_URL;
@@ -26,6 +27,16 @@ function PlayerAvatar({ position }: { position: string }) {
     <div className={`w-20 h-20 rounded-full ${POS_COLORS[position]??'bg-orange-500'} flex items-center justify-center shrink-0`}>
       <span className="text-white text-sm font-black">{position}</span>
     </div>
+  );
+}
+
+function TeamLabel({ name }: { name: string }) {
+  const logo = getTeamLogo(name);
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      {logo && <img src={logo} alt={name} className="w-4 h-4 object-contain" />}
+      {name}
+    </span>
   );
 }
 
@@ -60,7 +71,7 @@ function SpotlightSection({ onSelect }: { onSelect: (id: string) => void }) {
   {i < 3 ? MEDALS[i] : <span className="text-white font-black">{i + 1}</span>}
 </div>
               <p className="text-white text-sm font-black truncate">{p.player_name}</p>
-              <p className="text-gray-500 text-xs mb-3">{p.team_name} · {p.position ?? '-'}</p>
+              <p className="text-gray-500 text-xs mb-3"><TeamLabel name={p.team_name} /> · {p.position ?? '-'}</p>
               <p className="text-orange-400 text-lg font-black">{Number(p.woba).toFixed(3)}</p>
               <p className="text-gray-600 text-xs">wOBA</p>
               <div className="mt-2 pt-2 border-t border-gray-700">
@@ -86,7 +97,7 @@ function SpotlightSection({ onSelect }: { onSelect: (id: string) => void }) {
   {i < 3 ? MEDALS[i] : <span className="text-white font-black">{i + 1}</span>}
 </div>
               <p className="text-white text-sm font-black truncate">{p.player_name}</p>
-              <p className="text-gray-500 text-xs mb-3">{p.team_name}</p>
+              <p className="text-gray-500 text-xs mb-3"><TeamLabel name={p.team_name} /></p>
               <p className="text-blue-400 text-lg font-black">{Number(p.era).toFixed(2)}</p>
               <p className="text-gray-600 text-xs">ERA</p>
               <div className="mt-2 pt-2 border-t border-gray-700">
@@ -263,7 +274,7 @@ export default function PlayerPage() {
               <h1 className="text-white text-4xl font-black">{player.name}</h1>
               <span className="bg-orange-500 text-white text-xs font-bold px-2 py-1 rounded">{player.position}</span>
             </div>
-            <p className="text-gray-400 text-sm">{player.team}</p>
+            <p className="text-gray-400 text-sm"><TeamLabel name={player.team} /></p>
             {avSeasons.length > 1 && (
               <div className="flex gap-2 mt-3">
                 {avSeasons.map((s) => (
