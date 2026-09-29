@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useSearchParams, useParams, useNavigate } from 'react-router-dom';
 import PercentileBar from '../components/player/PercentileBar';
 import PlayerRadarChart from '../components/player/RadarChart';
@@ -40,22 +40,97 @@ function TeamLabel({ name }: { name: string }) {
   );
 }
 
-function SpotlightSection({ onSelect }: { onSelect: (id: string) => void }) {
-  const [hitters, setHitters] = useState<any[]>([]);
-  const [pitchers, setPitchers] = useState<any[]>([]);
+function useCountUp(target: number, duration = 600) {
+  const [value, setValue] = useState(target);
+  const prevTarget = useRef(target);
 
   useEffect(() => {
-    fetch(import.meta.env.VITE_API_URL + '/api/stats/hitters?sort=woba&limit=5')
-      .then(r => r.json()).then(d => setHitters(d.hitters ?? [])).catch(() => {});
-    fetch(import.meta.env.VITE_API_URL + '/api/stats/pitchers?sort=era&limit=5')
-      .then(r => r.json()).then(d => setPitchers(d.pitchers ?? [])).catch(() => {});
-  }, []);
+    if (prevTarget.current === target) return;
+    const start = performance.now();
+    const from = 0;
+    let raf: number;
+
+    function tick(now: number) {
+      const elapsed = now - start;
+      const progress = Math.min(elapsed / duration, 1);
+      const eased = 1 - Math.pow(1 - progress, 3);
+      setValue(from + (target - from) * eased);
+      if (progress < 1) raf = requestAnimationFrame(tick);
+      else setValue(target);
+    }
+    raf = requestAnimationFrame(tick);
+    prevTarget.current = target;
+    return () => cancelAnimationFrame(raf);
+  }, [target, duration]);
+
+  return value;
+}
+
+function StatNumber({ value, decimals }: { value: number; decimals: number }) {
+  const animated = useCountUp(value);
+  return <>{animated.toFixed(decimals)}</>;
+}
+
+function SpotlightSection({ onSelect }: { onSelect: (id: string) => void }) {
+  const [year, setYear] = useState(2026);
+  const [hitters, setHitters] = useState<any[]>([]);
+  const [pitchers, setPitchers] = useState<any[]>([]);
+  const [seq, setSeq] = useState(0);
+
+  const MIN_YEAR = 2015;
+  const MAX_YEAR = 2026;
+
+  useEffect(() => {
+    fetch(import.meta.env.VITE_API_URL + `/api/stats/hitters?sort=woba&limit=5&season=${year}`)
+      .then(r => r.json()).then(d => { setHitters(d.hitters ?? []); setSeq(s => s + 1); }).catch(() => setHitters([]));
+    fetch(import.meta.env.VITE_API_URL + `/api/stats/pitchers?sort=era&limit=5&season=${year}`)
+      .then(r => r.json()).then(d => setPitchers(d.pitchers ?? [])).catch(() => setPitchers([]));
+  }, [year]);
 
   const MEDALS = ['🥇','🥈','🥉','4','5'];
 
   return (
     <div className="max-w-4xl">
-      <p className="text-gray-500 text-xs uppercase tracking-widest mb-6">⚾ 2026 시즌 주목 선수</p>
+      <style>{`
+        @keyframes fadeSlideUp {
+          from { opacity: 0; transform: translateY(16px); }
+          to   { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes medalGlow1st {
+          0%, 100% { filter: drop-shadow(0 0 4px rgba(251,146,60,0.6)); }
+          50%      { filter: drop-shadow(0 0 12px rgba(251,146,60,0.95)); }
+        }
+        @keyframes medalGlow2nd3rd {
+          0%, 100% { filter: drop-shadow(0 0 2px rgba(255,255,255,0.3)); }
+          50%      { filter: drop-shadow(0 0 6px rgba(255,255,255,0.55)); }
+        }
+        @keyframes medalPop {
+          0%   { transform: scale(0.3) rotate(-15deg); opacity: 0; }
+          60%  { transform: scale(1.25) rotate(8deg); opacity: 1; }
+          100% { transform: scale(1) rotate(0deg); opacity: 1; }
+        }
+      `}</style>
+
+      <div className="flex items-center gap-3 mb-6">
+        <p className="text-gray-500 text-xs uppercase tracking-widest">⚾ 시즌 주목 선수</p>
+        <div className="flex items-center gap-2 ml-2">
+          <button
+            onClick={() => setYear(y => Math.max(MIN_YEAR, y - 1))}
+            disabled={year <= MIN_YEAR}
+            className="w-6 h-6 flex items-center justify-center bg-gray-800 hover:bg-gray-700 disabled:opacity-30 disabled:cursor-not-allowed text-gray-400 hover:text-white rounded transition-colors text-xs"
+          >
+            ←
+          </button>
+          <span className="text-orange-400 font-black text-sm w-12 text-center">{year}</span>
+          <button
+            onClick={() => setYear(y => Math.min(MAX_YEAR, y + 1))}
+            disabled={year >= MAX_YEAR}
+            className="w-6 h-6 flex items-center justify-center bg-gray-800 hover:bg-gray-700 disabled:opacity-30 disabled:cursor-not-allowed text-gray-400 hover:text-white rounded transition-colors text-xs"
+          >
+            →
+          </button>
+        </div>
+      </div>
 
       {/* 타자 TOP 5 */}
       <div className="mb-10">
@@ -63,24 +138,51 @@ function SpotlightSection({ onSelect }: { onSelect: (id: string) => void }) {
           <span className="text-orange-400 text-sm font-black">타자</span>
           <span className="text-gray-600 text-xs">wOBA 기준</span>
         </div>
-        <div className="grid grid-cols-5 gap-3">
-          {hitters.map((p, i) => (
-            <button key={p.player_id} onClick={() => onSelect(p.player_id)}
-              className="bg-gray-800 hover:bg-gray-700 rounded-xl p-4 text-left transition-colors border border-gray-700 hover:border-orange-500/50">
-              <div className="text-lg mb-2">
-  {i < 3 ? MEDALS[i] : <span className="text-white font-black">{i + 1}</span>}
-</div>
-              <p className="text-white text-sm font-black truncate">{p.player_name}</p>
-              <p className="text-gray-500 text-xs mb-3"><TeamLabel name={p.team_name} /> · {p.position ?? '-'}</p>
-              <p className="text-orange-400 text-lg font-black">{Number(p.woba).toFixed(3)}</p>
-              <p className="text-gray-600 text-xs">wOBA</p>
-              <div className="mt-2 pt-2 border-t border-gray-700">
-                <p className="text-gray-400 text-xs">OPS <span className="text-gray-300 font-bold">{Number(p.ops).toFixed(3)}</span></p>
-                <p className="text-gray-400 text-xs">HR <span className="text-gray-300 font-bold">{p.hr}</span></p>
-              </div>
-            </button>
-          ))}
-        </div>
+        {hitters.length === 0 ? (
+          <p className="text-gray-600 text-sm py-6">{year}시즌 데이터가 없습니다.</p>
+        ) : (
+          <div className="grid grid-cols-5 gap-3">
+            {hitters.map((p, i) => {
+              const logo = getTeamLogo(p.team_name);
+              return (
+                <button
+                  key={`${seq}-${p.player_id}`}
+                  onClick={() => onSelect(p.player_id)}
+                  style={{ animation: `fadeSlideUp 0.4s ease forwards`, animationDelay: `${i * 0.08}s`, opacity: 0 }}
+                  className={`bg-gray-800 hover:bg-gray-700 rounded-xl p-4 text-left transition-all border hover:scale-[1.03] hover:shadow-lg ${
+                    i === 0 ? 'border-orange-500/60 hover:border-orange-400' : 'border-gray-700 hover:border-orange-500/50'
+                  }`}
+                >
+                  <div
+                    className="text-lg mb-2 inline-block"
+                    style={{
+                      animation: i === 0
+                        ? 'medalPop 0.5s cubic-bezier(0.34,1.56,0.64,1) forwards, medalGlow1st 1.6s ease-in-out 0.5s infinite'
+                        : i < 3
+                        ? 'medalPop 0.5s cubic-bezier(0.34,1.56,0.64,1) forwards, medalGlow2nd3rd 2s ease-in-out 0.5s infinite'
+                        : 'medalPop 0.5s cubic-bezier(0.34,1.56,0.64,1) forwards',
+                    }}
+                  >
+                    {i < 3 ? MEDALS[i] : <span className="text-white font-black">{i + 1}</span>}
+                  </div>
+                  <p className="text-white text-sm font-black truncate">{p.player_name}</p>
+                  <div className="flex items-center gap-1.5 mb-3">
+                    {logo && <img src={logo} alt={p.team_name} className="w-3.5 h-3.5 object-contain shrink-0" />}
+                    <span className="text-gray-500 text-xs truncate">{p.team_name} · {p.position ?? '-'}</span>
+                  </div>
+                  <p className={`text-lg font-black ${i === 0 ? 'text-orange-300' : 'text-orange-400'}`}>
+                    <StatNumber value={Number(p.woba)} decimals={3} />
+                  </p>
+                  <p className="text-gray-600 text-xs">wOBA</p>
+                  <div className="mt-2 pt-2 border-t border-gray-700">
+                    <p className="text-gray-400 text-xs">OPS <span className="text-gray-300 font-bold"><StatNumber value={Number(p.ops)} decimals={3} /></span></p>
+                    <p className="text-gray-400 text-xs">HR <span className="text-gray-300 font-bold">{p.hr}</span></p>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {/* 투수 TOP 5 */}
@@ -89,28 +191,56 @@ function SpotlightSection({ onSelect }: { onSelect: (id: string) => void }) {
           <span className="text-blue-400 text-sm font-black">투수</span>
           <span className="text-gray-600 text-xs">ERA 기준 (규정이닝)</span>
         </div>
-        <div className="grid grid-cols-5 gap-3">
-          {pitchers.map((p, i) => (
-            <button key={p.player_id} onClick={() => onSelect(p.player_id)}
-              className="bg-gray-800 hover:bg-gray-700 rounded-xl p-4 text-left transition-colors border border-gray-700 hover:border-blue-500/50">
-              <div className="text-lg mb-2">
-  {i < 3 ? MEDALS[i] : <span className="text-white font-black">{i + 1}</span>}
-</div>
-              <p className="text-white text-sm font-black truncate">{p.player_name}</p>
-              <p className="text-gray-500 text-xs mb-3"><TeamLabel name={p.team_name} /></p>
-              <p className="text-blue-400 text-lg font-black">{Number(p.era).toFixed(2)}</p>
-              <p className="text-gray-600 text-xs">ERA</p>
-              <div className="mt-2 pt-2 border-t border-gray-700">
-                <p className="text-gray-400 text-xs">WHIP <span className="text-gray-300 font-bold">{Number(p.whip).toFixed(2)}</span></p>
-                <p className="text-gray-400 text-xs">IP <span className="text-gray-300 font-bold">{p.ip}</span></p>
-              </div>
-            </button>
-          ))}
-        </div>
+        {pitchers.length === 0 ? (
+          <p className="text-gray-600 text-sm py-6">{year}시즌 데이터가 없습니다.</p>
+        ) : (
+          <div className="grid grid-cols-5 gap-3">
+            {pitchers.map((p, i) => {
+              const logo = getTeamLogo(p.team_name);
+              return (
+                <button
+                  key={`${seq}-${p.player_id}`}
+                  onClick={() => onSelect(p.player_id)}
+                  style={{ animation: `fadeSlideUp 0.4s ease forwards`, animationDelay: `${i * 0.08}s`, opacity: 0 }}
+                  className={`bg-gray-800 hover:bg-gray-700 rounded-xl p-4 text-left transition-all border hover:scale-[1.03] hover:shadow-lg ${
+                    i === 0 ? 'border-blue-500/60 hover:border-blue-400' : 'border-gray-700 hover:border-blue-500/50'
+                  }`}
+                >
+                  <div
+                    className="text-lg mb-2 inline-block"
+                    style={{
+                      animation: i === 0
+                        ? 'medalPop 0.5s cubic-bezier(0.34,1.56,0.64,1) forwards, medalGlow1st 1.6s ease-in-out 0.5s infinite'
+                        : i < 3
+                        ? 'medalPop 0.5s cubic-bezier(0.34,1.56,0.64,1) forwards, medalGlow2nd3rd 2s ease-in-out 0.5s infinite'
+                        : 'medalPop 0.5s cubic-bezier(0.34,1.56,0.64,1) forwards',
+                    }}
+                  >
+                    {i < 3 ? MEDALS[i] : <span className="text-white font-black">{i + 1}</span>}
+                  </div>
+                  <p className="text-white text-sm font-black truncate">{p.player_name}</p>
+                  <div className="flex items-center gap-1.5 mb-3">
+                    {logo && <img src={logo} alt={p.team_name} className="w-3.5 h-3.5 object-contain shrink-0" />}
+                    <span className="text-gray-500 text-xs truncate">{p.team_name}</span>
+                  </div>
+                  <p className={`text-lg font-black ${i === 0 ? 'text-blue-300' : 'text-blue-400'}`}>
+                    <StatNumber value={Number(p.era)} decimals={2} />
+                  </p>
+                  <p className="text-gray-600 text-xs">ERA</p>
+                  <div className="mt-2 pt-2 border-t border-gray-700">
+                    <p className="text-gray-400 text-xs">WHIP <span className="text-gray-300 font-bold"><StatNumber value={Number(p.whip)} decimals={2} /></span></p>
+                    <p className="text-gray-400 text-xs">IP <span className="text-gray-300 font-bold">{p.ip}</span></p>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        )}
       </div>
     </div>
   );
 }
+
 
 function dbToPlayer(p: PlayerDB): Player {
   const ip = (p as any).era !== undefined && (p as any).era !== null && !(p as any).avg;
@@ -235,6 +365,12 @@ export default function PlayerPage() {
 
   if (showList && !playerId) return (
   <div className="min-h-screen bg-gray-900 px-10 py-8">
+    <style>{`
+      @keyframes fadeSlideUp {
+        from { opacity: 0; transform: translateY(16px); }
+        to   { opacity: 1; transform: translateY(0); }
+      }
+    `}</style>
     <h1 className="text-white text-3xl font-black mb-2">선수 프로필</h1>
     <p className="text-gray-400 text-sm mb-6">선수 이름 또는 팀명으로 검색하세요</p>
     <div className="relative max-w-lg mb-10">

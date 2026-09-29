@@ -12,8 +12,19 @@ import { fetchPlayers, optimizeLineup } from '../api/playerApi';
 import type { PlayerDB } from '../api/playerApi';
 import { fetchRecords, deleteRecord } from '../api/recordApi';
 import type { GameRecord } from '../api/recordApi';
+import { getTeamLogo } from '../utils/teamLogo';
 
 const KBO_TEAMS = ['LG', 'KIA', 'SSG', '한화', 'NC', 'KT', '삼성', '롯데', '두산', '키움'];
+
+function TeamLogoLabel({ name }: { name: string }) {
+  const logo = getTeamLogo(name);
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      {logo && <img src={logo} alt={name} className="w-4 h-4 object-contain" />}
+      {name}
+    </span>
+  );
+}
 
 function dbToPlayer(p: PlayerDB): Player {
   return {
@@ -198,7 +209,9 @@ function handleDragEnd(event: any) {
                     <div className="flex items-center justify-between mb-3">
                       <div>
                         <p className="text-white font-bold">{team.team_name}</p>
-                        <p className="text-gray-400 text-xs mt-0.5">vs {team.opponent} · {new Date(team.created_at).toLocaleDateString('ko-KR')}</p>
+                        <p className="text-gray-400 text-xs mt-0.5 flex items-center gap-1">
+                          vs <TeamLogoLabel name={team.opponent} /> · {new Date(team.created_at).toLocaleDateString('ko-KR')}
+                        </p>
                       </div>
                       <div className="flex gap-2">
                         <button onClick={() => handleLoadTeam(team)} className="text-xs bg-orange-500 hover:bg-orange-600 text-white px-3 py-1.5 rounded-lg transition-colors font-bold">불러오기</button>
@@ -237,6 +250,9 @@ function handleDragEnd(event: any) {
               </div>
               <div className="flex items-center gap-2">
                 <span className="text-gray-500 text-xs uppercase tracking-widest">상대팀</span>
+                {getTeamLogo(opponent) && (
+                  <img src={getTeamLogo(opponent)} alt={opponent} className="w-5 h-5 object-contain" />
+                )}
                 <select value={opponent} onChange={(e) => setOpponent(e.target.value)}
                   className="bg-gray-700 text-white text-sm border border-gray-600 rounded-lg px-3 py-2 focus:outline-none focus:border-orange-400 transition-colors w-28">
                   {KBO_TEAMS.map(t => <option key={t} value={t}>{t}</option>)}
@@ -308,7 +324,7 @@ function handleDragEnd(event: any) {
                           <span className="text-xs font-bold text-orange-400 bg-orange-400/10 px-2 py-0.5 rounded-lg">{player.position}</span>
                           <div>
                             <div className="text-white font-semibold text-sm">{player.name}{alreadyAdded && <span className="ml-2 text-xs text-gray-500">추가됨</span>}</div>
-                            <div className="text-gray-400 text-xs">{player.team}</div>
+                            <div className="text-gray-400 text-xs"><TeamLogoLabel name={player.team} /></div>
                           </div>
                         </div>
                         {ops && <div className="text-xs text-right"><div className="text-gray-500">OPS</div><div className="text-orange-400 font-bold">{ops.value.toFixed(3)}</div></div>}
@@ -446,7 +462,7 @@ function handleDragEnd(event: any) {
                 records.map((rec) => (
                   <div key={rec.id} className="bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 flex items-center justify-between hover:border-gray-600 transition-colors">
                     <div>
-                      <div className="text-white text-sm font-bold">vs {rec.opponent_name}</div>
+                      <div className="text-white text-sm font-bold flex items-center gap-1.5">vs <TeamLogoLabel name={rec.opponent_name} /></div>
                       <div className="text-gray-500 text-xs mt-0.5">{new Date(rec.played_at).toLocaleDateString('ko-KR')}</div>
                     </div>
                     <div className="flex items-center gap-2">
