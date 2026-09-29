@@ -1,1 +1,5 @@
 @import "tailwindcss";
+
+body {
+  font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, sans-serif;
+}
