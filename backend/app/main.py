@@ -455,12 +455,13 @@ def get_team_rank():
         except Exception as e: raise HTTPException(500,str(e))
 
 @app.get("/api/stats/hitters")
-def get_hitters(sort:Optional[str]="woba",limit:int=50):
+def get_hitters(sort:Optional[str]="woba",limit:int=50,season:Optional[int]=None):
+    target_season = season or SEASON
     try:
         c=get_conn(); cr=get_cur(c)
         sc_map={"woba":"woba","ops":"pst.ops","hr":"pst.hr","avg":"pst.avg","rbi":"pst.rbi"}
         s=sc_map.get(sort,"woba")
-        cr.execute("SELECT MAX(games) FROM team_rank_stats WHERE season_year=%s",(SEASON,))
+        cr.execute("SELECT MAX(games) FROM team_rank_stats WHERE season_year=%s",(target_season,))
         min_pa=int((cr.fetchone()['max'] or 1)*3.1)
         cr.execute(f"""SELECT p.player_id,p.player_name,t.team_name,pst.avg,pst.pa,pst.hr,pst.rbi,pst.obp,pst.slg,pst.ops,
             ROUND(CAST(pst.bb AS NUMERIC)/NULLIF(pst.pa,0)*100,1) AS bb_rate,
@@ -471,28 +472,29 @@ def get_hitters(sort:Optional[str]="woba",limit:int=50):
             FROM players p JOIN player_hitter_stats pst ON p.player_id=pst.player_id
             JOIN teams t ON pst.team_id=t.team_id
             LEFT JOIN player_defense_stats def ON p.player_id=def.player_id AND pst.season_year=def.season_year
-            WHERE pst.season_year=%s AND pst.pa>=%s ORDER BY {s} DESC NULLS LAST LIMIT %s""",(SEASON,min_pa,limit))
+            WHERE pst.season_year=%s AND pst.pa>=%s ORDER BY {s} DESC NULLS LAST LIMIT %s""",(target_season,min_pa,limit))
         r=cr.fetchall(); cr.close(); c.close()
         return {"hitters":rows(r),"min_pa":min_pa}
     except Exception as e: raise HTTPException(500,str(e))
 
 @app.get("/api/stats/pitchers")
-def get_pitchers(sort:Optional[str]="era",limit:int=50):
+def get_pitchers(sort:Optional[str]="era",limit:int=50,season:Optional[int]=None):
+    target_season = season or SEASON
     try:
         c=get_conn(); cr=get_cur(c)
-        cr.execute("SELECT MAX(games) FROM team_rank_stats WHERE season_year=%s",(SEASON,))
+        cr.execute("SELECT MAX(games) FROM team_rank_stats WHERE season_year=%s",(target_season,))
         r=cr.fetchone(); max_games=r['max'] if r and r['max'] else 1; min_ip=max_games
         sc_map={"era":"ps.era","w":"ps.w","sv":"ps.sv","so":"ps.so","whip":"ps.whip"}
         s=sc_map.get(sort,"ps.era"); order="ASC" if sort in ("era","whip") else "DESC"
-        cr.execute(f"""SELECT p.player_id,p.player_name,t.team_name,ps.era,ps.g,ps.w,ps.l,ps.sv,ps.hld,ps.ip,ps.so,ps.bb,ps.hr,ps.whip,ps.wpct,
+        cr.execute(f"""SELECT p.player_id,p.player_name,t.team_name,ps.era,ps.g,ps.gs,ps.w,ps.l,ps.sv,ps.hld,ps.ip,ps.so,ps.bb,ps.hr,ps.whip,ps.wpct,
             CAST(REGEXP_REPLACE(ps.ip,'[^0-9].*','') AS NUMERIC)+
             CASE WHEN ps.ip LIKE '%%2/3%%' THEN 0.667 WHEN ps.ip LIKE '%%1/3%%' THEN 0.333 ELSE 0 END AS ip_numeric
             FROM player_pitcher_stats ps JOIN players p ON ps.player_id=p.player_id
             JOIN teams t ON ps.team_id=t.team_id
-            WHERE ps.season_year=%s AND ps.ip IS NOT NULL
+            WHERE ps.season_year=%s AND ps.ip IS NOT NULL AND ps.gs>=3
             AND (CAST(REGEXP_REPLACE(ps.ip,'[^0-9].*','') AS NUMERIC)+
                  CASE WHEN ps.ip LIKE '%%2/3%%' THEN 0.667 WHEN ps.ip LIKE '%%1/3%%' THEN 0.333 ELSE 0 END)>=%s
-            ORDER BY {s} {order} NULLS LAST LIMIT %s""",(SEASON,min_ip,limit))
+            ORDER BY {s} {order} NULLS LAST LIMIT %s""",(target_season,min_ip,limit))
         r=cr.fetchall(); cr.close(); c.close()
         return {"pitchers":rows(r)}
     except Exception as e: raise HTTPException(500,str(e))
