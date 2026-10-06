@@ -13,6 +13,8 @@ services:
       - postgres_data:/var/lib/postgresql/data
       - ./backend/db/init/01_schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
       - ./backend/db/init/02_app_tables.sql:/docker-entrypoint-initdb.d/02_app_tables.sql:ro
+      - ./backend/db/init/03_player_profiles.sql:/docker-entrypoint-initdb.d/03_player_profiles.sql:ro
+      - ./backend/db/init/04_player_awards.sql:/docker-entrypoint-initdb.d/04_player_awards.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ballpark"]
       interval: 10s
