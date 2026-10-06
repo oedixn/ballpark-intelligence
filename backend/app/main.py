@@ -4,7 +4,7 @@ from fastapi.responses import Response, JSONResponse
 from pydantic import BaseModel
 from typing import List, Optional
 from decimal import Decimal
-from datetime import datetime
+from datetime import date, datetime
 import sys, os, psycopg2.extras, re, urllib.request, urllib.parse, json as J, math
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -23,11 +23,44 @@ def clean(v):
 def row(r):  return {k: clean(v) for k, v in dict(r).items()}
 def rows(rs): return [row(r) for r in rs]
 
+def build_club_career(records):
+    """시즌별 소속팀을 같은 팀의 연속 구간으로 묶습니다."""
+    teams_by_year = {}
+    for record in records:
+        year = int(record["season_year"])
+        teams_by_year.setdefault(year, set()).add(record["team_name"])
+
+    periods = []
+    for year in sorted(teams_by_year):
+        team_names = sorted(teams_by_year[year])
+        signature = tuple(team_names)
+        if (
+            periods
+            and periods[-1]["_signature"] == signature
+            and periods[-1]["end_year"] + 1 == year
+        ):
+            periods[-1]["end_year"] = year
+            continue
+
+        periods.append({
+            "start_year": year,
+            "end_year": year,
+            "team_name": " / ".join(team_names),
+            "team_names": team_names,
+            "_signature": signature,
+        })
+
+    for period in periods:
+        period.pop("_signature", None)
+        period["is_current"] = period["end_year"] == SEASON
+    return list(reversed(periods))
+
 class SafeJSONResponse(JSONResponse):
     def render(self, content) -> bytes:
         def default(o):
             if isinstance(o, Decimal): return None if o.is_nan() else float(o)
             if isinstance(o, float) and math.isnan(o): return None
+            if isinstance(o, (date, datetime)): return o.isoformat()
             raise TypeError(f"Not serializable: {type(o)}")
         return J.dumps(content, ensure_ascii=False, default=default).encode("utf-8")
 
@@ -44,6 +77,8 @@ WOBA = "(pst.bb*0.69+pst.hbp*0.72+(pst.h-pst.double_hit-pst.triple_hit-pst.hr)*0
 
 HITTER_Q = f"""
     SELECT p.player_id, p.player_name, t.team_name, pst.season_year,
+        p.uniform_number, p.birth_date, p.profile_position,
+        p.throws_hand, p.bats_side, p.bat_throw, p.height_cm, p.weight_kg,
         pst.avg, pst.pa, pst.ab, pst.h, pst.double_hit, pst.triple_hit,
         pst.hr, pst.bb, pst.hbp, pst.so, pst.slg, pst.obp, pst.ops, pst.isop, pst.rbi,
         ROUND(CAST(pst.bb  AS NUMERIC)/NULLIF(pst.pa,0)*100,1) AS bb_rate,
@@ -56,7 +91,8 @@ HITTER_Q = f"""
         ROUND(CAST(PERCENT_RANK() OVER(PARTITION BY pst.season_year ORDER BY pst.hr)*100 AS NUMERIC),0) AS hr_percentile,
         ROUND(CAST(PERCENT_RANK() OVER(PARTITION BY pst.season_year ORDER BY CAST(pst.bb AS NUMERIC)/NULLIF(pst.pa,0))*100 AS NUMERIC),0) AS bb_percentile,
         ROUND(CAST(PERCENT_RANK() OVER(PARTITION BY pst.season_year ORDER BY CAST(pst.so AS NUMERIC)/NULLIF(pst.pa,0) DESC)*100 AS NUMERIC),0) AS k_percentile,
-        NULL::numeric AS babip, NULL::numeric AS spd, NULL::numeric AS war, def.position
+        NULL::numeric AS babip, NULL::numeric AS spd, NULL::numeric AS war,
+        COALESCE(def.position, p.profile_position) AS position
     FROM players p
     JOIN player_hitter_stats pst ON p.player_id = pst.player_id
     JOIN teams t ON pst.team_id = t.team_id
@@ -65,6 +101,8 @@ HITTER_Q = f"""
 
 PITCHER_Q = """
     SELECT p.player_id, p.player_name, t.team_name, ps.season_year,
+        p.uniform_number, p.birth_date, p.profile_position,
+        p.throws_hand, p.bats_side, p.bat_throw, p.height_cm, p.weight_kg,
         NULL::numeric AS avg, NULL::integer AS pa, NULL::integer AS ab,
         NULL::integer AS h, NULL::integer AS double_hit, NULL::integer AS triple_hit,
         NULL::integer AS hr, NULL::integer AS bb, NULL::integer AS hbp,
@@ -74,7 +112,8 @@ PITCHER_Q = """
         NULL::numeric AS woba, NULL::numeric AS wrc_plus,
         0::numeric AS woba_percentile, 0::numeric AS ops_percentile,
         0::numeric AS hr_percentile, 0::numeric AS bb_percentile, 0::numeric AS k_percentile,
-        NULL::numeric AS babip, NULL::numeric AS spd, NULL::numeric AS war, '투수' AS position,
+        NULL::numeric AS babip, NULL::numeric AS spd, NULL::numeric AS war,
+        COALESCE(p.profile_position, '투수') AS position,
         ps.era, ps.w, ps.l, ps.sv, ps.hld, ps.ip,
         ps.so AS pitcher_so, ps.bb AS pitcher_bb, ps.whip, ps.g, ps.h, ps.hr AS pitcher_hr, ps.tbf,
         ROUND(CAST(PERCENT_RANK() OVER(PARTITION BY ps.season_year ORDER BY ps.era   DESC)*100 AS NUMERIC),0) AS era_percentile,
@@ -300,9 +339,29 @@ def get_player(player_id:int, season:Optional[int]=None):
                 lp=cr.fetchone(); lp=lp['max'] if lp and lp['max'] else target
                 cr.execute("SELECT * FROM("+PITCHER_Q+"WHERE ps.season_year=%s) sub WHERE sub.player_id=%s::varchar",(lp,player_id))
                 r=cr.fetchone()
+        if not r:
+            cr.close(); c.close()
+            raise HTTPException(404,"선수를 찾을 수 없습니다.")
+
+        cr.execute("""
+            SELECT season_year, award_type, award_name, team_name, position
+            FROM player_awards
+            WHERE player_id = %s::varchar
+            ORDER BY season_year DESC, award_type, position
+        """, (player_id,))
+        awards=rows(cr.fetchall())
+
+        cr.execute("""
+            SELECT season_year, team_name
+            FROM player_club_history
+            WHERE player_id = %s::varchar
+            ORDER BY season_year, team_name
+        """, (player_id,))
+        club_career=build_club_career(cr.fetchall())
+
         cr.close(); c.close()
-        if not r: raise HTTPException(404,"선수를 찾을 수 없습니다.")
         result=row(r); result['available_seasons']=av; result['current_season']=target
+        result['awards']=awards; result['club_career']=club_career
         return result
     except HTTPException: raise
     except Exception as e: raise HTTPException(500,str(e))
