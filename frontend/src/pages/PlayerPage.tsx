@@ -1,136 +1,759 @@
-import axios from 'axios';
+import { useState, useEffect, useRef } from 'react';
+import { useSearchParams, useParams, useNavigate } from 'react-router-dom';
+import PercentileBar from '../components/player/PercentileBar';
+import PlayerRadarChart from '../components/player/RadarChart';
+import InsightBox from '../components/player/InsightBox';
+import PlayerCard from '../components/player/PlayerCard';
+import LoadingSpinner from '../components/common/LoadingSpinner';
+import ErrorBox from '../components/common/ErrorBox';
+import { fetchPlayers, fetchPlayerById, fetchPlayerSeasons } from '../api/playerApi';
+import type { PlayerDB, PlayerSeasons } from '../api/playerApi';
+import type { Player } from '../data/mockPlayers';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, BarChart, Bar, PieChart, Pie, Cell } from 'recharts';
+import { getTeamLogo } from '../utils/teamLogo';
 
-const api = axios.create({ baseURL: import.meta.env.VITE_API_URL });
+const MB_COLORS = ['#f97316','#60a5fa','#4ade80','#f87171','#a78bfa'];
+const API = import.meta.env.VITE_API_URL;
+const TS = { contentStyle:{backgroundColor:'#1f2937',border:'1px solid #374151',borderRadius:'8px'}, labelStyle:{color:'#f97316'}, itemStyle:{color:'#d1d5db'} };
+const LS = { color:'#9ca3af', fontSize:'12px' };
+const POS_COLORS: Record<string,string> = {
+  '포수':'bg-blue-600','1루수':'bg-red-600','2루수':'bg-green-600','3루수':'bg-yellow-600',
+  '유격수':'bg-purple-600','좌익수':'bg-pink-600','중견수':'bg-teal-600','우익수':'bg-orange-600',
+  '지명타자':'bg-gray-600','투수':'bg-blue-700',
+};
 
-export interface PlayerAward {
-  season_year: number;
-  award_type: string;
-  award_name: string;
-  team_name: string;
-  position: string;
+function PlayerAvatar({ position }: { position: string }) {
+  return (
+    <div className={`w-20 h-20 rounded-full ${POS_COLORS[position]??'bg-orange-500'} flex items-center justify-center shrink-0`}>
+      <span className="text-white text-sm font-black">{position}</span>
+    </div>
+  );
 }
 
-export interface ClubCareerPeriod {
-  start_year: number;
-  end_year: number;
-  team_name: string;
-  team_names: string[];
-  is_current: boolean;
+function TeamLabel({ name }: { name: string }) {
+  const logo = getTeamLogo(name);
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      {logo && <img src={logo} alt={name} className="w-4 h-4 object-contain" />}
+      {name}
+    </span>
+  );
 }
 
-export interface PlayerDB {
-  player_id: string;
-  player_name: string;
-  team_name: string;
-  season_year: number;
-  avg: number;
-  pa: number;
-  ab: number;
-  h: number;
-  double_hit: number;
-  triple_hit: number;
-  hr: number;
-  bb: number;
-  hbp: number;
-  so: number;
-  slg: number;
-  obp: number;
-  ops: number;
-  isop: number;
-  rbi: number;
-  babip: number | null;
-  bb_rate: number | null;
-  k_rate: number | null;
-  iso: number | null;
-  spd: number | null;
-  war: number | null;
-  woba: number | null;
-  position: string | null;
-  uniform_number?: number | null;
-  birth_date?: string | null;
-  profile_position?: string | null;
-  throws_hand?: 'R' | 'L' | null;
-  bats_side?: 'R' | 'L' | 'S' | null;
-  bat_throw?: string | null;
-  height_cm?: number | null;
-  weight_kg?: number | null;
-  awards?: PlayerAward[];
-  club_career?: ClubCareerPeriod[];
-  available_seasons?: number[];
-  current_season?: number;
+function useCountUp(target: number, duration = 600) {
+  const [value, setValue] = useState(target);
+  const prevTarget = useRef(target);
+
+  useEffect(() => {
+    if (prevTarget.current === target) return;
+    const start = performance.now();
+    const from = 0;
+    let raf: number;
+
+    function tick(now: number) {
+      const elapsed = now - start;
+      const progress = Math.min(elapsed / duration, 1);
+      const eased = 1 - Math.pow(1 - progress, 3);
+      setValue(from + (target - from) * eased);
+      if (progress < 1) raf = requestAnimationFrame(tick);
+      else setValue(target);
+    }
+    raf = requestAnimationFrame(tick);
+    prevTarget.current = target;
+    return () => cancelAnimationFrame(raf);
+  }, [target, duration]);
+
+  return value;
 }
 
-export async function fetchPlayers(search?: string): Promise<PlayerDB[]> {
-  const params = search ? { search } : {};
-  const res = await api.get<{ players: PlayerDB[] }>('/api/players', { params });
-  return res.data.players;
+function StatNumber({ value, decimals }: { value: number; decimals: number }) {
+  const animated = useCountUp(value);
+  return <>{animated.toFixed(decimals)}</>;
 }
 
-export async function fetchPlayerById(playerId: string, season?: number): Promise<PlayerDB> {
-  const params = season ? { season } : {};
-  const res = await api.get<PlayerDB>(`/api/players/${playerId}`, { params });
-  return res.data;
+function SpotlightSection({ onSelect }: { onSelect: (id: string) => void }) {
+  const [year, setYear] = useState(2026);
+  const [hitters, setHitters] = useState<any[]>([]);
+  const [pitchers, setPitchers] = useState<any[]>([]);
+  const [seq, setSeq] = useState(0);
+
+  const MIN_YEAR = 2015;
+  const MAX_YEAR = 2026;
+
+  useEffect(() => {
+    fetch(import.meta.env.VITE_API_URL + `/api/stats/hitters?sort=woba&limit=5&season=${year}`)
+      .then(r => r.json()).then(d => { setHitters(d.hitters ?? []); setSeq(s => s + 1); }).catch(() => setHitters([]));
+    fetch(import.meta.env.VITE_API_URL + `/api/stats/pitchers?sort=era&limit=5&season=${year}`)
+      .then(r => r.json()).then(d => setPitchers(d.pitchers ?? [])).catch(() => setPitchers([]));
+  }, [year]);
+
+  const MEDALS = ['🥇','🥈','🥉','4','5'];
+
+  return (
+    <div className="max-w-4xl">
+      <style>{`
+        @keyframes fadeSlideUp {
+          from { opacity: 0; transform: translateY(16px); }
+          to   { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes medalGlow1st {
+          0%, 100% { filter: drop-shadow(0 0 4px rgba(251,146,60,0.6)); }
+          50%      { filter: drop-shadow(0 0 12px rgba(251,146,60,0.95)); }
+        }
+        @keyframes medalGlow2nd3rd {
+          0%, 100% { filter: drop-shadow(0 0 2px rgba(255,255,255,0.3)); }
+          50%      { filter: drop-shadow(0 0 6px rgba(255,255,255,0.55)); }
+        }
+        @keyframes medalPop {
+          0%   { transform: scale(0.3) rotate(-15deg); opacity: 0; }
+          60%  { transform: scale(1.25) rotate(8deg); opacity: 1; }
+          100% { transform: scale(1) rotate(0deg); opacity: 1; }
+        }
+      `}</style>
+
+      <div className="flex items-center gap-3 mb-6">
+        <p className="text-gray-500 text-xs uppercase tracking-widest">⚾ 시즌 주목 선수</p>
+        <div className="flex items-center gap-2 ml-2">
+          <button
+            onClick={() => setYear(y => Math.max(MIN_YEAR, y - 1))}
+            disabled={year <= MIN_YEAR}
+            className="w-6 h-6 flex items-center justify-center bg-gray-800 hover:bg-gray-700 disabled:opacity-30 disabled:cursor-not-allowed text-gray-400 hover:text-white rounded transition-colors text-xs"
+          >
+            ←
+          </button>
+          <span className="text-orange-400 font-black text-sm w-12 text-center">{year}</span>
+          <button
+            onClick={() => setYear(y => Math.min(MAX_YEAR, y + 1))}
+            disabled={year >= MAX_YEAR}
+            className="w-6 h-6 flex items-center justify-center bg-gray-800 hover:bg-gray-700 disabled:opacity-30 disabled:cursor-not-allowed text-gray-400 hover:text-white rounded transition-colors text-xs"
+          >
+            →
+          </button>
+        </div>
+      </div>
+
+      {/* 타자 TOP 5 */}
+      <div className="mb-10">
+        <div className="flex items-center gap-2 mb-4">
+          <span className="text-orange-400 text-sm font-black">타자</span>
+          <span className="text-gray-600 text-xs">wOBA 기준</span>
+        </div>
+        {hitters.length === 0 ? (
+          <p className="text-gray-600 text-sm py-6">{year}시즌 데이터가 없습니다.</p>
+        ) : (
+          <div className="grid grid-cols-5 gap-3">
+            {hitters.map((p, i) => {
+              const logo = getTeamLogo(p.team_name);
+              return (
+                <button
+                  key={`${seq}-${p.player_id}`}
+                  onClick={() => onSelect(p.player_id)}
+                  style={{ animation: `fadeSlideUp 0.4s ease forwards`, animationDelay: `${i * 0.08}s`, opacity: 0 }}
+                  className={`bg-gray-800 hover:bg-gray-700 rounded-xl p-4 text-left transition-all border hover:scale-[1.03] hover:shadow-lg ${
+                    i === 0 ? 'border-orange-500/60 hover:border-orange-400' : 'border-gray-700 hover:border-orange-500/50'
+                  }`}
+                >
+                  <div
+                    className="text-lg mb-2 inline-block"
+                    style={{
+                      animation: i === 0
+                        ? 'medalPop 0.5s cubic-bezier(0.34,1.56,0.64,1) forwards, medalGlow1st 1.6s ease-in-out 0.5s infinite'
+                        : i < 3
+                        ? 'medalPop 0.5s cubic-bezier(0.34,1.56,0.64,1) forwards, medalGlow2nd3rd 2s ease-in-out 0.5s infinite'
+                        : 'medalPop 0.5s cubic-bezier(0.34,1.56,0.64,1) forwards',
+                    }}
+                  >
+                    {i < 3 ? MEDALS[i] : <span className="text-white font-black">{i + 1}</span>}
+                  </div>
+                  <p className="text-white text-sm font-black truncate">{p.player_name}</p>
+                  <div className="flex items-center gap-1.5 mb-3">
+                    {logo && <img src={logo} alt={p.team_name} className="w-3.5 h-3.5 object-contain shrink-0" />}
+                    <span className="text-gray-500 text-xs truncate">{p.team_name} · {p.position ?? '-'}</span>
+                  </div>
+                  <p className={`text-lg font-black ${i === 0 ? 'text-orange-300' : 'text-orange-400'}`}>
+                    <StatNumber value={Number(p.woba)} decimals={3} />
+                  </p>
+                  <p className="text-gray-600 text-xs">wOBA</p>
+                  <div className="mt-2 pt-2 border-t border-gray-700">
+                    <p className="text-gray-400 text-xs">OPS <span className="text-gray-300 font-bold"><StatNumber value={Number(p.ops)} decimals={3} /></span></p>
+                    <p className="text-gray-400 text-xs">HR <span className="text-gray-300 font-bold">{p.hr}</span></p>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* 투수 TOP 5 */}
+      <div>
+        <div className="flex items-center gap-2 mb-4">
+          <span className="text-blue-400 text-sm font-black">투수</span>
+          <span className="text-gray-600 text-xs">ERA 기준 (규정이닝)</span>
+        </div>
+        {pitchers.length === 0 ? (
+          <p className="text-gray-600 text-sm py-6">{year}시즌 데이터가 없습니다.</p>
+        ) : (
+          <div className="grid grid-cols-5 gap-3">
+            {pitchers.map((p, i) => {
+              const logo = getTeamLogo(p.team_name);
+              return (
+                <button
+                  key={`${seq}-${p.player_id}`}
+                  onClick={() => onSelect(p.player_id)}
+                  style={{ animation: `fadeSlideUp 0.4s ease forwards`, animationDelay: `${i * 0.08}s`, opacity: 0 }}
+                  className={`bg-gray-800 hover:bg-gray-700 rounded-xl p-4 text-left transition-all border hover:scale-[1.03] hover:shadow-lg ${
+                    i === 0 ? 'border-blue-500/60 hover:border-blue-400' : 'border-gray-700 hover:border-blue-500/50'
+                  }`}
+                >
+                  <div
+                    className="text-lg mb-2 inline-block"
+                    style={{
+                      animation: i === 0
+                        ? 'medalPop 0.5s cubic-bezier(0.34,1.56,0.64,1) forwards, medalGlow1st 1.6s ease-in-out 0.5s infinite'
+                        : i < 3
+                        ? 'medalPop 0.5s cubic-bezier(0.34,1.56,0.64,1) forwards, medalGlow2nd3rd 2s ease-in-out 0.5s infinite'
+                        : 'medalPop 0.5s cubic-bezier(0.34,1.56,0.64,1) forwards',
+                    }}
+                  >
+                    {i < 3 ? MEDALS[i] : <span className="text-white font-black">{i + 1}</span>}
+                  </div>
+                  <p className="text-white text-sm font-black truncate">{p.player_name}</p>
+                  <div className="flex items-center gap-1.5 mb-3">
+                    {logo && <img src={logo} alt={p.team_name} className="w-3.5 h-3.5 object-contain shrink-0" />}
+                    <span className="text-gray-500 text-xs truncate">{p.team_name}</span>
+                  </div>
+                  <p className={`text-lg font-black ${i === 0 ? 'text-blue-300' : 'text-blue-400'}`}>
+                    <StatNumber value={Number(p.era)} decimals={2} />
+                  </p>
+                  <p className="text-gray-600 text-xs">ERA</p>
+                  <div className="mt-2 pt-2 border-t border-gray-700">
+                    <p className="text-gray-400 text-xs">WHIP <span className="text-gray-300 font-bold"><StatNumber value={Number(p.whip)} decimals={2} /></span></p>
+                    <p className="text-gray-400 text-xs">IP <span className="text-gray-300 font-bold">{p.ip}</span></p>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }
 
-export async function fetchTeamLineup(teamName: string): Promise<{
-  name: string; ab: number; hits: number; double: number;
-  triple: number; hr: number; bb: number; hbp: number;
-}[]> {
-  const res = await api.get(`/api/teams/${encodeURIComponent(teamName)}/lineup`);
-  return res.data.lineup.map((p: any) => ({
-    name:   p.player_name,
-    ab:     p.ab     ?? 300,
-    hits:   p.hits   ?? 80,
-    double: p.double ?? 15,
-    triple: p.triple ?? 2,
-    hr:     p.hr     ?? 5,
-    bb:     p.bb     ?? 30,
-    hbp:    p.hbp    ?? 3,
-  }));
+
+function dbToPlayer(p: PlayerDB): Player {
+  const ip = (p as any).era !== undefined && (p as any).era !== null && !(p as any).avg;
+  return {
+    id: Number(p.player_id), name: p.player_name, team: p.team_name,
+    position: p.position ?? (ip ? '투수' : '-'),
+    stats: ip ? [
+      { label:'ERA',   value:Number((p as any).era??0),        percentile:Number((p as any).era_percentile??0),  unit:'ERA'  },
+      { label:'승',    value:Number((p as any).w??0),          percentile:Number((p as any).w_percentile??0),    unit:'승'   },
+      { label:'세이브', value:Number((p as any).sv??0),         percentile:Number((p as any).sv_percentile??0),   unit:'세'   },
+      { label:'탈삼진', value:Number((p as any).pitcher_so??0), percentile:Number((p as any).so_percentile??0),   unit:'K'    },
+      { label:'WHIP',  value:Number((p as any).whip??0),       percentile:Number((p as any).whip_percentile??0), unit:'WHIP' },
+    ] : [
+      { label:'wOBA', value:Number(p.woba??0),    percentile:Number((p as any).woba_percentile??0), unit:'wOBA' },
+      { label:'OPS',  value:Number(p.ops??0),     percentile:Number((p as any).ops_percentile??0),  unit:'OPS'  },
+      { label:'HR',   value:Number(p.hr??0),      percentile:Number((p as any).hr_percentile??0),   unit:'HR'   },
+      { label:'BB%',  value:Number(p.bb_rate??0), percentile:Number((p as any).bb_percentile??0),   unit:'%'    },
+      { label:'K%',   value:Number(p.k_rate??0),  percentile:Number((p as any).k_percentile??0),    unit:'%'    },
+    ],
+    radar: ip ? [
+      { stat:'구위',   value:Math.min(99,Math.max(1,Math.round(100-Number((p as any).era??5)*10))) },
+      { stat:'제구',   value:Math.min(99,Math.max(1,Math.round(100-Number((p as any).whip??2)*30))) },
+      { stat:'탈삼진', value:Math.min(99,Math.round(Number((p as any).pitcher_so??0)*1.5)) },
+      { stat:'이닝', value:60 }, { stat:'수비', value:60 },
+      { stat:'승리', value:Math.min(99,Math.round(Number((p as any).w??0)*8)) },
+    ] : [
+      { stat:'컨택',   value:Math.min(99,Math.round(Number(p.avg??0)*300)) },
+      { stat:'파워',   value:Math.min(99,Math.round(Number((p as any).iso??0)*400)) },
+      { stat:'선구안', value:Math.min(99,Math.round(Number(p.bb_rate??0)*5)) },
+      { stat:'스피드', value:50 }, { stat:'수비', value:60 },
+      { stat:'출루',   value:Math.min(99,Math.round(Number(p.obp??0)*200)) },
+    ],
+  };
 }
 
-export async function optimizeLineup(lineup: {
-  name: string; ab: number; hits: number; double: number;
-  triple: number; hr: number; bb: number; hbp: number;
-}[]): Promise<{ optimized_order: string[] }> {
-  const res = await api.post('/api/lineup/optimize', {
-    team_a_name: '최적화',
-    team_a_lineup: lineup,
-    team_b_name: '최적화',
-    team_b_lineup: [],
-  });
-  return res.data;
+export default function PlayerPage() {
+  const navigate = useNavigate();
+  const [player, setPlayer]             = useState<Player | null>(null);
+  const [raw, setRaw]                   = useState<PlayerDB | null>(null);
+  const [players, setPlayers]           = useState<Player[]>([]);
+  const [loading, setLoading]           = useState(false);
+  const [listLoading, setLL]            = useState(false);
+  const [error, setError]               = useState(false);
+  const [query, setQuery]               = useState('');
+  const [showList, setShowList]         = useState(true);
+  const [season, setSeason]             = useState<number | null>(null);
+  const [seasons, setSeasons]           = useState<PlayerSeasons | null>(null);
+  const [mb, setMb]                     = useState<any>(null);
+  const [mbDist, setMbDist]             = useState<any[]>([]);
+  const [similar, setSimilar]           = useState<any[]>([]);
+  const [prediction, setPrediction]     = useState<any>(null);
+  const [predLoading, setPredLoading]   = useState(false);
+  const [predRequested, setPredReq]     = useState(false);
+  const [searchParams]                  = useSearchParams();
+  const { playerId }                    = useParams<{ playerId: string }>();
+
+  async function loadPlayer(id: string, s?: number) {
+    setLoading(true); setError(false);
+    try {
+      const data = await fetchPlayerById(id, s);
+      setRaw(data); setPlayer(dbToPlayer(data)); setSeason(data.current_season ?? null);
+      try { setSeasons(await fetchPlayerSeasons(id)); } catch { setSeasons(null); }
+      const isH = (data as any).avg !== null && (data as any).avg !== undefined;
+      if (isH) {
+        try {
+          const [r0,r1,r2] = await Promise.all([
+            fetch(`${API}/api/players/${id}/moneyball`),
+            fetch(`${API}/api/moneyball/distribution`),
+            fetch(`${API}/api/players/${id}/similar`),
+          ]);
+          if (r0.ok) setMb(await r0.json());
+          if (r1.ok) { const d = await r1.json(); setMbDist(d.distribution); }
+          if (r2.ok) { const d = await r2.json(); setSimilar(d.similar_players); }
+        } catch { setMb(null); setMbDist([]); setSimilar([]); }
+        setPrediction(null); setPredReq(false);
+      } else {
+        try {
+          const r = await fetch(`${API}/api/players/${id}/similar`);
+          if (r.ok) { const d = await r.json(); setSimilar(d.similar_players); }
+        } catch { setSimilar([]); }
+        setMb(null); setMbDist([]); setPrediction(null); setPredReq(false);
+      }
+    } catch { setError(true); }
+    finally { setLoading(false); }
+  }
+
+  async function requestPrediction() {
+    if (!raw) return;
+    const id = playerId ?? raw.player_id;
+    setPredLoading(true); setPredReq(true);
+    try {
+      const r = await fetch(`${API}/api/players/${id}/predict`);
+      if (r.ok) setPrediction(await r.json());
+    } catch { setPrediction(null); }
+    finally { setPredLoading(false); }
+  }
+
+  useEffect(() => { if (!playerId) return; setShowList(false); loadPlayer(playerId); }, [playerId]);
+  useEffect(() => {
+    if (playerId) return;
+    const q = searchParams.get('search');
+    if (q) { setQuery(q); setShowList(true); setPlayer(null); }
+  }, [searchParams, playerId]);
+  useEffect(() => {
+    if (!query.trim()) { setPlayers([]); return; }
+    const t = setTimeout(async () => {
+      setLL(true);
+      try { setPlayers((await fetchPlayers(query)).map(dbToPlayer)); }
+      catch { setPlayers([]); } finally { setLL(false); }
+    }, 300);
+    return () => clearTimeout(t);
+  }, [query]);
+
+  function handleBack() {
+    setPlayer(null); setShowList(true); setRaw(null); setSeason(null);
+    setMb(null); setMbDist([]); setSimilar([]); setPrediction(null);
+    setPredReq(false); setPredLoading(false);
+  }
+
+  const avSeasons = raw?.available_seasons ?? [];
+  const ip = raw && (raw as any).era !== undefined && (raw as any).era !== null && !(raw as any).avg;
+
+  if (showList && !playerId) return (
+  <div className="min-h-screen bg-gray-900 px-10 py-8">
+    <style>{`
+      @keyframes fadeSlideUp {
+        from { opacity: 0; transform: translateY(16px); }
+        to   { opacity: 1; transform: translateY(0); }
+      }
+    `}</style>
+    <h1 className="text-white text-3xl font-black mb-2">선수 프로필</h1>
+    <p className="text-gray-400 text-sm mb-6">선수 이름 또는 팀명으로 검색하세요</p>
+    <div className="relative max-w-lg mb-10">
+      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">🔍</span>
+      <input type="text" value={query} onChange={(e) => setQuery(e.target.value)}
+        placeholder="선수 이름 또는 팀명 검색..."
+        className="w-full bg-gray-800 text-white placeholder-gray-500 rounded-lg pl-9 pr-4 py-2.5 text-sm border border-gray-700 focus:outline-none focus:border-orange-400 transition-colors" />
+      {query && <button onClick={() => setQuery('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-600 hover:text-gray-400 text-xs">✕</button>}
+    </div>
+
+    {/* 검색 결과 */}
+    {query && (
+      <div className="max-w-lg space-y-2 mb-10">
+        {listLoading ? <p className="text-gray-500 text-sm text-center py-10 animate-pulse">검색 중...</p>
+          : players.length===0 ? <p className="text-gray-500 text-sm text-center py-10">검색 결과가 없습니다</p>
+          : players.map((p) => <PlayerCard key={p.id} player={p} onClick={(p) => { setShowList(false); loadPlayer(String(p.id)); }} />)}
+      </div>
+    )}
+
+    {/* 이번 시즌 주목 선수 */}
+    {!query && <SpotlightSection onSelect={(id) => { setShowList(false); loadPlayer(id); }} />}
+  </div>
+);
+
+  if (loading) return <LoadingSpinner />;
+  if (error)   return <ErrorBox onRetry={handleBack} />;
+  if (!player) return null;
+
+  return (
+    <div className="min-h-screen bg-gray-900">
+      <div className="bg-gradient-to-r from-gray-800 to-gray-900 border-b border-gray-700 px-10 py-8">
+        <div className="flex items-center gap-6">
+          <button onClick={handleBack} className="text-gray-400 hover:text-white text-sm mr-2">← 목록</button>
+          <PlayerAvatar position={player.position} />
+          <div>
+            <div className="flex items-center gap-3 mb-1">
+              <h1 className="text-white text-4xl font-black">{player.name}</h1>
+              <span className="bg-orange-500 text-white text-xs font-bold px-2 py-1 rounded">{player.position}</span>
+            </div>
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-gray-400 text-sm">
+              <TeamLabel name={player.team} />
+              {raw?.uniform_number != null && (
+                <><span className="text-gray-600">·</span><span>No.{raw.uniform_number}</span></>
+              )}
+              {raw?.bat_throw && (
+                <><span className="text-gray-600">·</span><span>{raw.bat_throw}</span></>
+              )}
+            </div>
+            {(raw?.birth_date || (raw?.height_cm != null && raw?.weight_kg != null)) && (
+              <p className="text-gray-500 text-xs mt-1">
+                {raw?.birth_date}
+                {raw?.birth_date && raw?.height_cm != null && raw?.weight_kg != null && ' · '}
+                {raw?.height_cm != null && raw?.weight_kg != null
+                  ? `${raw.height_cm}cm/${raw.weight_kg}kg`
+                  : null}
+              </p>
+            )}
+            {avSeasons.length > 1 && (
+              <div className="flex gap-2 mt-3">
+                {avSeasons.map((s) => (
+                  <button key={s} onClick={() => { const id = playerId ?? raw?.player_id;
+                  if (id) {
+                    setPrediction(null);
+                    setPredReq(false);
+                    setPredLoading(false);
+                    loadPlayer(id, s);
+                  }
+                }}
+                    className={`px-3 py-1 rounded-lg text-xs font-bold transition-colors ${season===s?'bg-orange-500 text-white':'bg-gray-700 text-gray-400 hover:text-white'}`}>
+                    {s}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+          <div className="ml-auto flex gap-6">
+            {!ip ? (
+              <>
+                {[['AVG',Number(raw?.avg??0).toFixed(3)],['OBP',Number(raw?.obp??0).toFixed(3)],['SLG',Number(raw?.slg??0).toFixed(3)],['OPS',Number(raw?.ops??0).toFixed(3)],['wOBA',Number(raw?.woba??0).toFixed(3)]].map(([l,v]) => (
+                  <div key={l} className="text-center"><p className="text-orange-400 text-2xl font-black">{v}</p><p className="text-gray-300 text-sm mt-1">{l}</p></div>
+                ))}
+                {(raw as any)?.wrc_plus != null && (
+                  <div className="text-center border-l border-gray-700 pl-6">
+                    <p className={`text-xl font-black ${Number((raw as any).wrc_plus)>=130?'text-orange-400':Number((raw as any).wrc_plus)>=100?'text-green-400':'text-gray-400'}`}>{Number((raw as any).wrc_plus)}</p>
+                    <p className="text-gray-400 text-xs mt-1">wRC+</p>
+                  </div>
+                )}
+              </>
+            ) : (
+              [['ERA',Number((raw as any)?.era??0).toFixed(2)],['W-L',`${(raw as any)?.w??0}-${(raw as any)?.l??0}`],['IP',(raw as any)?.ip??'0'],['SO',String((raw as any)?.pitcher_so??0)],['WHIP',Number((raw as any)?.whip??0).toFixed(2)]].map(([l,v]) => (
+                <div key={l} className="text-center"><p className="text-orange-400 text-2xl font-black">{v}</p><p className="text-gray-300 text-sm mt-1">{l}</p></div>
+              ))
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div className="px-10 py-8">
+        <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,384px)_minmax(0,320px)_minmax(320px,1fr)] gap-6 mb-6 items-start">
+          <div className="bg-gray-800 rounded-xl p-6 w-full">
+            <p className="text-gray-400 text-xs mb-4 uppercase tracking-widest">
+              주요 지표 {season && <span className="ml-2 text-orange-400">{season} 시즌</span>}
+            </p>
+            {player.stats.map((s) => <PercentileBar key={s.label} label={s.label} value={s.value} percentile={s.percentile} unit={s.unit} />)}
+          </div>
+          <div className="bg-gray-800 rounded-xl p-6 w-full">
+            <p className="text-gray-400 text-xs mb-2 uppercase tracking-widest text-center">능력치 레이더</p>
+            <PlayerRadarChart data={player.radar} />
+          </div>
+
+          <div className="space-y-6 min-w-0">
+            <section className="bg-gray-800 rounded-xl p-6 border border-gray-700/70">
+              <div className="flex items-center justify-between mb-4">
+                <p className="text-gray-300 text-xs uppercase tracking-widest font-bold">🏆 수상 경력</p>
+                <span className="text-orange-400 text-xs font-bold">{raw?.awards?.length ?? 0}회</span>
+              </div>
+              {raw?.awards?.length ? (
+                <div className="max-h-72 overflow-y-auto pr-2 space-y-2">
+                  {raw.awards.map((award, index) => (
+                    <div key={`${award.season_year}-${award.award_type}-${award.position}-${index}`}
+                      className="flex gap-3 rounded-lg bg-gray-900/70 border border-gray-700/60 px-3 py-3">
+                      <span className="shrink-0 text-orange-400 text-sm font-black">{award.season_year}</span>
+                      <div className="min-w-0">
+                        <p className="text-white text-sm font-bold leading-tight">{award.award_name}</p>
+                        <p className="text-gray-500 text-xs mt-1">
+                          {[award.team_name, award.position].filter(Boolean).join(' · ')}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-gray-500 text-sm py-5 text-center">등록된 수상 경력이 없습니다.</p>
+              )}
+            </section>
+
+            <section className="bg-gray-800 rounded-xl p-6 border border-gray-700/70">
+              <p className="text-gray-300 text-xs mb-4 uppercase tracking-widest font-bold">⚾ 클럽 경력</p>
+              {raw?.club_career?.length ? (
+                <div className="space-y-0">
+                  {raw.club_career.map((career, index) => (
+                    <div key={`${career.start_year}-${career.end_year}-${career.team_name}`}
+                      className="relative flex gap-3 pb-4 last:pb-0">
+                      {index < raw.club_career!.length - 1 && (
+                        <span className="absolute left-[5px] top-3 bottom-0 w-px bg-gray-700" />
+                      )}
+                      <span className={`relative z-10 mt-1 h-3 w-3 shrink-0 rounded-full ${career.is_current ? 'bg-orange-400 ring-4 ring-orange-400/10' : 'bg-gray-600'}`} />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center justify-between gap-3">
+                          <p className="text-white text-sm font-bold truncate">{career.team_name}</p>
+                          <span className="shrink-0 text-gray-400 text-xs">
+                            {career.start_year === career.end_year
+                              ? career.start_year
+                              : `${career.start_year}–${career.is_current ? '현재' : career.end_year}`}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-gray-500 text-sm py-5 text-center">등록된 클럽 경력이 없습니다.</p>
+              )}
+              <p className="text-gray-600 text-[11px] mt-4 border-t border-gray-700 pt-3">보유한 2015–2026 시즌 데이터 기준</p>
+            </section>
+          </div>
+        </div>
+
+        <div className="max-w-xl"><InsightBox name={player.name} stats={player.stats} /></div>
+
+        {/* 머니볼 */}
+        {mb && (
+          <div className="bg-gradient-to-br from-gray-800 to-gray-900 border border-orange-500/20 rounded-xl p-6 mt-6 max-w-xl">
+            <p className="text-orange-400 text-xs mb-4 uppercase tracking-widest font-bold">⚾ 머니볼 엔진 분석</p>
+            <div className="grid grid-cols-3 gap-3 mb-5">
+              <div className="bg-gray-900 rounded-lg p-3 text-center"><p className="text-gray-500 text-xs mb-1">선수 유형</p><p className="text-white text-sm font-black">{mb.cluster_type}</p></div>
+              <div className="bg-gray-900 rounded-lg p-3 text-center"><p className="text-gray-500 text-xs mb-1">UV Score</p>
+                <p className={`text-sm font-black ${mb.uv_score>=20?'text-green-400':mb.uv_score>=5?'text-blue-400':mb.uv_score>=-5?'text-gray-300':mb.uv_score>=-20?'text-yellow-400':'text-red-400'}`}>
+                  {mb.uv_score>0?'+':''}{mb.uv_score}</p></div>
+              <div className="bg-gray-900 rounded-lg p-3 text-center"><p className="text-gray-500 text-xs mb-1">평가</p>
+                <p className={`text-sm font-black ${mb.uv_label==='매우 저평가'?'text-green-400':mb.uv_label==='저평가'?'text-blue-400':mb.uv_label==='적정 평가'?'text-gray-300':mb.uv_label==='고평가'?'text-yellow-400':'text-red-400'}`}>
+                  {mb.uv_label}</p></div>
+            </div>
+            <p className="text-gray-400 text-xs mb-3 leading-relaxed">{mb.cluster_desc}</p>
+            <p className="text-gray-500 text-xs mb-5 leading-relaxed">
+              wOBA 백분위 <span className="text-orange-400 font-bold">{mb.woba_pct}%</span> — PA 백분위 <span className="text-blue-400 font-bold">{mb.pa_pct}%</span> = UV Score <span className="font-bold text-white">{mb.uv_score}</span>
+            </p>
+            {mbDist.length > 0 && (
+              <div className="mb-5">
+                <p className="text-gray-500 text-xs mb-3">리그 전체 유형 분포</p>
+                <div className="flex items-center gap-4">
+                  <PieChart width={120} height={120}>
+                    <Pie data={mbDist} cx={55} cy={55} innerRadius={35} outerRadius={55} dataKey="count" nameKey="type">
+                      {mbDist.map((e,i) => <Cell key={e.type} fill={MB_COLORS[i%MB_COLORS.length]} opacity={e.type===mb.cluster_type?1:0.4} stroke={e.type===mb.cluster_type?'#fff':'none'} strokeWidth={e.type===mb.cluster_type?2:0} />)}
+                    </Pie>
+                  </PieChart>
+                  <div className="flex flex-col gap-1.5">
+                    {mbDist.map((e,i) => (
+                      <div key={e.type} className={`flex items-center gap-2 text-xs ${e.type===mb.cluster_type?'text-white font-bold':'text-gray-500'}`}>
+                        <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{backgroundColor:MB_COLORS[i%MB_COLORS.length],opacity:e.type===mb.cluster_type?1:0.4}} />
+                        {e.type} {e.pct}% {e.type===mb.cluster_type&&<span className="text-orange-400">← 현재</span>}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+            {mb.same_cluster_players?.length > 0 && (
+              <div><p className="text-gray-500 text-xs mb-2">같은 유형 선수</p>
+                <div className="flex gap-2 flex-wrap">
+                  {mb.same_cluster_players.map((n: string) => <span key={n} className="bg-gray-700 text-gray-300 text-xs px-2 py-1 rounded-lg">{n}</span>)}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* 유사 선수 */}
+        {similar.length > 0 && (
+          <div className="bg-gray-800 rounded-xl p-6 mt-6 max-w-xl">
+            <p className="text-gray-400 text-xs mb-4 uppercase tracking-widest">🔍 유사 선수 추천</p>
+            <div className="space-y-3">
+              {similar.map((p, i) => (
+                <div key={`${p.player_id}-${i}`}
+                  className="flex items-center gap-4 bg-gray-900 rounded-lg px-4 py-3 hover:bg-gray-700 transition-colors cursor-pointer"
+                  onClick={() => { setSimilar([]); setMb(null); setMbDist([]); setPrediction(null); setPredReq(false); navigate(`/player/${p.player_id}`); }}>
+                  <div className="w-8 h-8 rounded-full bg-orange-500/20 flex items-center justify-center shrink-0">
+                    <span className="text-orange-400 text-xs font-black">{i+1}</span>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-white text-sm font-bold">{p.player_name}
+                      <span className="text-gray-500 text-xs ml-2">{p.team_name} · {p.season_year}</span>
+                    </p>
+                    <p className="text-gray-500 text-xs mt-0.5">
+                      {p.era !== undefined
+                        ? `ERA ${Number(p.era).toFixed(2)} · WHIP ${Number(p.whip).toFixed(2)} · K/G ${Number(p.so_per_g).toFixed(1)}`
+                        : `AVG ${Number(p.avg).toFixed(3)} · OPS ${Number(p.ops).toFixed(3)} · wOBA ${Number(p.woba).toFixed(3)}`}
+                    </p>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <p className={`text-sm font-black ${p.similarity>=99?'text-orange-400':p.similarity>=95?'text-green-400':'text-gray-400'}`}>{p.similarity}%</p>
+                    <p className="text-gray-600 text-xs">유사도</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* LSTM 성과 예측 */}
+{(
+  <div className="mt-6 max-w-xl">
+    {!predRequested ? (
+      <button onClick={requestPrediction}
+        className="w-full bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-500 hover:to-blue-600 text-white rounded-xl py-4 px-6 text-sm font-bold transition-all flex items-center justify-center gap-2">
+        🤖 {raw ? `${Number((raw as any).season_year ?? 2026)+1}` : '내년'} 시즌 성과 예측 (LSTM AI)
+      </button>
+    ) : predLoading ? (
+      <div className="bg-gray-800 rounded-xl p-6 text-center">
+        <p className="text-blue-400 text-sm animate-pulse">🤖 LSTM 모델로 예측 중... (최대 30초)</p>
+        <p className="text-gray-600 text-xs mt-2">9시즌 데이터를 학습하고 있어요</p>
+      </div>
+    ) : prediction ? (
+      <div className="bg-gradient-to-br from-gray-800 to-gray-900 border border-blue-500/20 rounded-xl p-6">
+        <div className="flex items-center justify-between mb-4">
+          <p className="text-blue-400 text-xs uppercase tracking-widest font-bold">🤖 AI 성과 예측</p>
+          <span className={`text-xs px-2 py-0.5 rounded font-bold ${prediction.confidence==='high'?'bg-green-500/20 text-green-400':prediction.confidence==='medium'?'bg-yellow-500/20 text-yellow-400':'bg-gray-500/20 text-gray-400'}`}>
+            {prediction.confidence==='high'?'높은':prediction.confidence==='medium'?'보통':'낮은'} 신뢰도
+          </span>
+        </div>
+        <p className="text-gray-500 text-xs mb-4">
+          {prediction.seasons_used}시즌 데이터 기반 · {prediction.method==='lstm'?'LSTM 딥러닝':'가중 평균'} 예측
+        </p>
+        <div className="grid grid-cols-3 gap-3 mb-4">
+  {(prediction.type === 'pitcher' ? [
+    { label:'ERA',  cur:prediction.recent_stats.era,      pred:prediction.predictions.era,      lower:true  },
+    { label:'WHIP', cur:prediction.recent_stats.whip,     pred:prediction.predictions.whip,     lower:true  },
+    { label:'K/G',  cur:prediction.recent_stats.so_per_g, pred:prediction.predictions.so_per_g, lower:false },
+  ] : [
+    { label:'AVG',  cur:prediction.recent_stats.avg,  pred:prediction.predictions.avg,  lower:false },
+    { label:'OPS',  cur:prediction.recent_stats.ops,  pred:prediction.predictions.ops,  lower:false },
+    { label:'wOBA', cur:prediction.recent_stats.woba, pred:prediction.predictions.woba, lower:false },
+  ]).map(({ label, cur, pred, lower }) => {
+    const diff = Number(pred) - Number(cur);
+    return (
+      <div key={label} className="bg-gray-900 rounded-lg p-3 text-center">
+        <p className="text-gray-500 text-xs mb-1">{label}</p>
+        <p className="text-white text-sm font-black">{Number(pred).toFixed(3)}</p>
+        <p className={`text-xs mt-0.5 font-bold ${
+          diff===0 ? 'text-gray-500'
+          : (lower ? diff<0 : diff>0) ? 'text-green-400' : 'text-red-400'
+        }`}>
+          {diff>0?'▲':'▼'} {Math.abs(diff).toFixed(3)}
+        </p>
+      </div>
+    );
+  })}
+</div>
+        <div className="flex items-center justify-between text-xs text-gray-600">
+          <span>{prediction.current_season} 현재 시즌</span>
+          <span className="text-blue-400 font-bold">→ {prediction.next_season} 예측</span>
+        </div>
+      </div>
+    ) : (
+      <div className="bg-gray-800 rounded-xl p-4 text-center">
+        <p className="text-gray-500 text-xs">예측 데이터를 불러오지 못했습니다</p>
+        <button onClick={() => setPredReq(false)} className="text-blue-400 text-xs mt-2 hover:underline">다시 시도</button>
+      </div>
+    )}
+  </div>
+)}
+        {/* 연도별 차트 */}
+        {seasons && seasons.seasons.length >= 2 && (
+          <div className="bg-gray-800 rounded-xl p-6 mt-6 max-w-3xl">
+            <p className="text-gray-400 text-xs mb-6 uppercase tracking-widest">연도별 성적 추이</p>
+            {seasons.type === 'hitter' ? (
+              <>
+                {[
+                  { title:'wOBA / OPS', lines:[{key:'woba',color:'#f97316'},{key:'ops',color:'#60a5fa'}], domain:[0,1.2] as [number,number] },
+                  { title:'BB% / K%',  lines:[{key:'bb_rate',color:'#4ade80'},{key:'k_rate',color:'#f87171'}] },
+                ].map(({title,lines,domain}) => (
+                  <div key={title} className="mb-8">
+                    <p className="text-gray-500 text-xs mb-3">{title}</p>
+                    <ResponsiveContainer width="100%" height={200}>
+                      <LineChart data={seasons.seasons}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                        <XAxis dataKey="season_year" stroke="#9ca3af" tick={{fontSize:12}} />
+                        <YAxis stroke="#9ca3af" tick={{fontSize:12}} {...(domain?{domain}:{})} />
+                        <Tooltip {...TS} /><Legend wrapperStyle={LS} />
+                        {lines.map(l => <Line key={l.key} type="monotone" dataKey={l.key} stroke={l.color} strokeWidth={2} dot={{fill:l.color,r:4}} name={l.key} />)}
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
+                ))}
+                <div>
+                  <p className="text-gray-500 text-xs mb-3">홈런 / 타율</p>
+                  <ResponsiveContainer width="100%" height={200}>
+                    <BarChart data={seasons.seasons}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                      <XAxis dataKey="season_year" stroke="#9ca3af" tick={{fontSize:12}} />
+                      <YAxis yAxisId="left" stroke="#9ca3af" tick={{fontSize:12}} />
+                      <YAxis yAxisId="right" orientation="right" stroke="#9ca3af" tick={{fontSize:12}} domain={[0,0.5]} />
+                      <Tooltip {...TS} /><Legend wrapperStyle={LS} />
+                      <Bar yAxisId="left"  dataKey="hr"  fill="#f97316" name="홈런" radius={[4,4,0,0]} />
+                      <Bar yAxisId="right" dataKey="avg" fill="#60a5fa" name="타율" radius={[4,4,0,0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="mb-8">
+                  <p className="text-gray-500 text-xs mb-3">ERA / WHIP</p>
+                  <ResponsiveContainer width="100%" height={200}>
+                    <LineChart data={seasons.seasons}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                      <XAxis dataKey="season_year" stroke="#9ca3af" tick={{fontSize:12}} />
+                      <YAxis stroke="#9ca3af" tick={{fontSize:12}} />
+                      <Tooltip {...TS} /><Legend wrapperStyle={LS} />
+                      <Line type="monotone" dataKey="era"  stroke="#f97316" strokeWidth={2} dot={{fill:'#f97316',r:4}} name="ERA" />
+                      <Line type="monotone" dataKey="whip" stroke="#60a5fa" strokeWidth={2} dot={{fill:'#60a5fa',r:4}} name="WHIP" />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+                <div>
+                  <p className="text-gray-500 text-xs mb-3">승 / 탈삼진</p>
+                  <ResponsiveContainer width="100%" height={200}>
+                    <BarChart data={seasons.seasons}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                      <XAxis dataKey="season_year" stroke="#9ca3af" tick={{fontSize:12}} />
+                      <YAxis stroke="#9ca3af" tick={{fontSize:12}} />
+                      <Tooltip {...TS} /><Legend wrapperStyle={LS} />
+                      <Bar dataKey="w"          fill="#f97316" name="승"    radius={[4,4,0,0]} />
+                      <Bar dataKey="pitcher_so" fill="#60a5fa" name="탈삼진" radius={[4,4,0,0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }
 
-export interface PlayerSeason {
-  season_year: number;
-  // 타자
-  avg?: number;
-  pa?: number;
-  hr?: number;
-  rbi?: number;
-  obp?: number;
-  slg?: number;
-  ops?: number;
-  bb_rate?: number;
-  k_rate?: number;
-  woba?: number;
-  // 투수
-  era?: number;
-  w?: number;
-  l?: number;
-  sv?: number;
-  ip?: string;
-  pitcher_so?: number;
-  whip?: number;
-}
-
-export interface PlayerSeasons {
-  type: 'hitter' | 'pitcher';
-  seasons: PlayerSeason[];
-}
-
-export async function fetchPlayerSeasons(playerId: string): Promise<PlayerSeasons> {
-  const res = await api.get<PlayerSeasons>(`/api/players/${playerId}/seasons`);
-  return res.data;
-}
