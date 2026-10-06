@@ -2,6 +2,22 @@ import axios from 'axios';
 
 const api = axios.create({ baseURL: import.meta.env.VITE_API_URL });
 
+export interface PlayerAward {
+  season_year: number;
+  award_type: string;
+  award_name: string;
+  team_name: string;
+  position: string;
+}
+
+export interface ClubCareerPeriod {
+  start_year: number;
+  end_year: number;
+  team_name: string;
+  team_names: string[];
+  is_current: boolean;
+}
+
 export interface PlayerDB {
   player_id: string;
   player_name: string;
@@ -30,6 +46,16 @@ export interface PlayerDB {
   war: number | null;
   woba: number | null;
   position: string | null;
+  uniform_number?: number | null;
+  birth_date?: string | null;
+  profile_position?: string | null;
+  throws_hand?: 'R' | 'L' | null;
+  bats_side?: 'R' | 'L' | 'S' | null;
+  bat_throw?: string | null;
+  height_cm?: number | null;
+  weight_kg?: number | null;
+  awards?: PlayerAward[];
+  club_career?: ClubCareerPeriod[];
   available_seasons?: number[];
   current_season?: number;
 }
