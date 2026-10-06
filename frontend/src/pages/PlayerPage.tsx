@@ -503,12 +503,12 @@ export default function PlayerPage() {
                   ))}
                 </div>
               ) : (
-                <p className="text-gray-500 text-sm py-5 text-center">등록된 수상 경력이 없습니다.</p>
+                <p className="text-gray-500 text-sm py-5 text-center">확인된 수상 기록이 없습니다.</p>
               )}
             </section>
 
             <section className="bg-gray-800 rounded-xl p-6 border border-gray-700/70">
-              <p className="text-gray-300 text-xs mb-4 uppercase tracking-widest font-bold">⚾ 클럽 경력</p>
+              <p className="text-gray-300 text-xs mb-4 uppercase tracking-widest font-bold">⚾ KBO 소속 이력 <span className="text-gray-600 normal-case tracking-normal font-normal">(2015~)</span></p>
               {raw?.club_career?.length ? (
                 <div className="space-y-0">
                   {raw.club_career.map((career, index) => (
@@ -532,7 +532,7 @@ export default function PlayerPage() {
                   ))}
                 </div>
               ) : (
-                <p className="text-gray-500 text-sm py-5 text-center">등록된 클럽 경력이 없습니다.</p>
+                <p className="text-gray-500 text-sm py-5 text-center">2015년 이후 KBO 소속 기록이 없습니다.</p>
               )}
               <p className="text-gray-600 text-[11px] mt-4 border-t border-gray-700 pt-3">보유한 2015–2026 시즌 데이터 기준</p>
             </section>
