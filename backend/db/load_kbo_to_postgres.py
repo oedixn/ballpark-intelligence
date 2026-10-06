@@ -41,11 +41,16 @@ from app.db import get_connection
 # 크롤링 결과 CSV 폴더
 CSV_DIR = Path(__file__).parent / "output_db_ready"
 APP_SCHEMA_PATH = Path(__file__).parent / "init" / "02_app_tables.sql"
+PROFILE_SCHEMA_PATH = Path(__file__).parent / "init" / "03_player_profiles.sql"
+AWARDS_SCHEMA_PATH = Path(__file__).parent / "init" / "04_player_awards.sql"
 
 # CSV 파일명이 (1) 붙은 업로드본인 경우에도 자동으로 찾기 위한 후보 목록
 CSV_ALIASES = {
     "teams.csv": ["teams.csv", "teams(1).csv"],
     "players.csv": ["players.csv", "players(1).csv"],
+    "player_profiles.csv": ["player_profiles.csv"],
+    "player_awards.csv": ["player_awards.csv"],
+    "player_club_history.csv": ["player_club_history.csv"],
     "player_season_teams.csv": ["player_season_teams.csv", "player_season_teams(1).csv"],
     "player_hitter_stats.csv": ["player_hitter_stats.csv", "player_hitter_stats(1).csv"],
     "player_pitcher_stats.csv": ["player_pitcher_stats.csv", "player_pitcher_stats(1).csv"],
@@ -143,6 +148,8 @@ CONFLICT_TARGETS = {
     "player_pitcher_stats": ["season_year", "player_id", "team_id"],
     "player_defense_stats": ["season_year", "player_id", "team_id", "position"],
     "player_runner_stats": ["season_year", "player_id", "team_id"],
+    "player_awards": ["season_year", "award_type", "player_name", "team_name", "position"],
+    "player_club_history": ["season_year", "player_id", "team_name"],
     "team_hitter_stats": ["season_year", "team_id"],
     "team_pitcher_stats": ["season_year", "team_id"],
     "team_defense_stats": ["season_year", "team_id"],
@@ -158,7 +165,10 @@ CONFLICT_TARGETS = {
 LOAD_PLAN = [
     ("teams.csv", "teams"),
     ("players.csv", "players"),
+    ("player_profiles.csv", "players"),
     ("player_season_teams.csv", "player_season_teams"),
+    ("player_club_history.csv", "player_club_history"),
+    ("player_awards.csv", "player_awards"),
     ("player_hitter_stats.csv", "player_hitter_stats"),
     ("player_pitcher_stats.csv", "player_pitcher_stats"),
     ("player_defense_stats.csv", "player_defense_stats"),
@@ -301,9 +311,41 @@ def clean_row_for_table(
     """CSV row를 DB 테이블에 넣을 수 있는 형태로 변환합니다."""
     cleaned = {key: normalize_value(value) for key, value in row.items()}
 
+    # KBO 기본 프로필 CSV를 players 테이블 컬럼에 맞게 변환합니다.
+    # 일반 players.csv에는 crawl_status가 없으므로 기존 적재에는 영향이 없습니다.
+    if table_name == "players" and "crawl_status" in cleaned:
+        if cleaned.get("crawl_status") != "success":
+            return None
+
+        raw_position = cleaned.get("position")
+        if raw_position:
+            profile_position = raw_position
+            detail = None
+
+            # 사이드암/언더핸드 선수는 기존 크롤러에서
+            # position='투수(우언우타)'처럼 남아 있을 수 있습니다.
+            if "(" in raw_position and raw_position.endswith(")"):
+                profile_position, detail = raw_position.split("(", 1)
+                detail = detail[:-1]
+
+            cleaned["profile_position"] = profile_position.strip()
+
+            if detail:
+                if not cleaned.get("bat_throw"):
+                    cleaned["bat_throw"] = detail
+                if not cleaned.get("throws_hand") and detail.startswith("우언"):
+                    cleaned["throws_hand"] = "R"
+                if not cleaned.get("bats_side"):
+                    if detail.endswith("우타"):
+                        cleaned["bats_side"] = "R"
+                    elif detail.endswith("좌타"):
+                        cleaned["bats_side"] = "L"
+                    elif detail.endswith("양타"):
+                        cleaned["bats_side"] = "S"
+
     # 팀명이 있는 모든 CSV row는 먼저 대표 팀명으로 정규화합니다.
     # 예: SK -> SSG, 넥센 -> 키움, OB -> 두산
-    if cleaned.get("team_name"):
+    if cleaned.get("team_name") and table_name not in {"player_awards", "player_club_history"}:
         cleaned["team_name"] = normalize_team_name(cleaned.get("team_name"))
 
     # 팀 테이블은 team_code가 비어 있으면 기본 매핑으로 채움
@@ -330,7 +372,7 @@ def clean_row_for_table(
         return None
 
     # KBO 선수 기록 테이블은 player_id 필수
-    if table_name.startswith("player_") and table_name != "player_season_teams":
+    if table_name.startswith("player_") and table_name not in {"player_season_teams", "player_awards"}:
         if "player_id" in db_columns and not cleaned.get("player_id"):
             return None
 
@@ -412,7 +454,21 @@ def load_table(conn, canonical_csv: str, table_name: str) -> None:
         raw_rows = read_csv_rows(path)
         cleaned_rows = []
 
+        # 과거 수상자 중 현재 players 테이블에 없는 ID는 FK 오류를 막기 위해
+        # NULL로 저장합니다. 수상 원문은 player_name/team_name으로 보존됩니다.
+        valid_player_ids = set()
+        if table_name == "player_awards":
+            cur.execute("SELECT player_id FROM players")
+            valid_player_ids = {str(row[0]) for row in cur.fetchall()}
+
         for row in raw_rows:
+            if (
+                table_name == "player_awards"
+                and row.get("player_id")
+                and str(row.get("player_id")).strip() not in valid_player_ids
+            ):
+                row = dict(row)
+                row["player_id"] = ""
             cleaned = clean_row_for_table(row, table_name, db_columns, team_map)
             if cleaned:
                 cleaned_rows.append(cleaned)
@@ -440,6 +496,8 @@ def main() -> None:
         # 기존 볼륨도 회원/전적 마이그레이션을 받도록 매번 멱등 적용한다.
         with conn.cursor() as cur:
             cur.execute(APP_SCHEMA_PATH.read_text(encoding="utf-8"))
+            cur.execute(PROFILE_SCHEMA_PATH.read_text(encoding="utf-8"))
+            cur.execute(AWARDS_SCHEMA_PATH.read_text(encoding="utf-8"))
         conn.commit()
 
         for csv_name, table_name in LOAD_PLAN:
