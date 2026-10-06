@@ -1,5 +1,10 @@
 @import "tailwindcss";
 
+html {
+  font-size: 17px;
+}
+
 body {
   font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, sans-serif;
+  -webkit-font-smoothing: antialiased;
 }
