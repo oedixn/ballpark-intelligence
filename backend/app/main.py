@@ -352,10 +352,11 @@ def get_player(player_id:int, season:Optional[int]=None):
         awards=rows(cr.fetchall())
 
         cr.execute("""
-            SELECT season_year, team_name
-            FROM player_club_history
-            WHERE player_id = %s::varchar
-            ORDER BY season_year, team_name
+            SELECT pst.season_year, t.team_name
+            FROM player_season_teams pst
+            JOIN teams t ON t.team_id = pst.team_id
+            WHERE pst.player_id = %s::varchar
+            ORDER BY pst.season_year, t.team_name
         """, (player_id,))
         club_career=build_club_career(cr.fetchall())
 
