@@ -12,7 +12,7 @@ type Col = { h: string; k: string; d?: number; s?: string; c?: string; hi?: bool
 
 const TABS: { key: Tab; label: string }[] = [{ key: 'team', label: '팀 순위' }, { key: 'hitter', label: '타자 기록' }, { key: 'pitcher', label: '투수 기록' }];
 const HITTER_SORT = [['woba', 'wOBA'], ['ops', 'OPS'], ['hr', 'HR'], ['avg', '타율'], ['rbi', 'RBI']];
-const PITCHER_SORT = [['era', 'ERA'], ['w', '승'], ['sv', '세이브'], ['so', '탈삼진'], ['whip', 'WHIP']];
+const PITCHER_SORT = [['era', 'ERA'], ['w', '승'], ['sv', '세이브'], ['hld', '홀드'], ['so', '탈삼진'], ['whip', 'WHIP']];
 
 const HITTER_COLS: Col[] = [
   { h: 'PA', k: 'pa' }, { h: '타율', k: 'avg', d: 3 }, { h: 'HR', k: 'hr' }, { h: 'RBI', k: 'rbi' },
