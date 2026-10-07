@@ -114,15 +114,14 @@ function NavBar() {
         { to: '/schedule',  label: '경기 일정' },
       ].map(({ to, label }) => (
         <NavLink
-          key={to} to={to}
+          key={to}
+          to={to}
           className={({ isActive }) =>
-            `text-sm transition-colors shrink-0 pb-1 ${
-              isActive ? 'text-white font-bold border-b-2 border-orange-400' : 'text-gray-400 hover:text-white'
-            }`
-          }
-        >
-          {label}
-        </NavLink>
+            `text-sm font-semibold transition-colors ${isActive ? 'text-orange-400' : 'text-white hover:text-orange-400'}`
+        }
+      >
+        {label}
+      </NavLink>
       ))}
 
       {/* 검색바 */}
