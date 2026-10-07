@@ -5,6 +5,9 @@ import { getTeamLogo } from '../utils/teamLogo';
 
 const api = axios.create({ baseURL: import.meta.env.VITE_API_URL });
 
+const CURRENT = 2026;
+const SEASONS = Array.from({ length: CURRENT - 2015 + 1 }, (_, i) => CURRENT - i);
+
 interface TeamRank { rank: number; team_name: string; games: number; wins: number; losses: number; draws: number; win_rate: number }
 interface RecentGame { date: string; opponent: string; score: string; result: 'W' | 'L' | 'D' }
 type Tab = 'team' | 'hitter' | 'pitcher';
@@ -47,6 +50,7 @@ const cell = (c: Col, p: Record<string, any>) => {
 
 export default function StatsPage() {
   const navigate = useNavigate();
+  const [season, setSeason] = useState(CURRENT);
   const [tab, setTab] = useState<Tab>('team');
   const [teams, setTeams] = useState<TeamRank[]>([]);
   const [recent, setRecent] = useState<Record<string, RecentGame[]>>({});
@@ -55,32 +59,48 @@ export default function StatsPage() {
   const [hSort, setHSort] = useState('woba');
   const [pSort, setPSort] = useState('era');
   const [loading, setLoading] = useState(false);
+  const isCurrent = season === CURRENT;
 
   useEffect(() => {
+    let alive = true;
     setLoading(true);
-    const done = () => setLoading(false);
+    const done = () => alive && setLoading(false);
+    const q = `season=${season}`;
+
     if (tab === 'team') {
-      api.get('/api/stats/team-rank').then(res => {
+      setTeams([]);
+      api.get(`/api/stats/team-rank?${q}`).then(res => {
+        if (!alive) return;
         setTeams(res.data.teams);
-        res.data.teams.forEach((t: TeamRank) =>
-          api.get(`/api/teams/${encodeURIComponent(t.team_name)}/recent`)
-            .then(r => setRecent(prev => ({ ...prev, [t.team_name]: r.data.recent }))).catch(() => {}));
-      }).catch(() => {}).finally(done);
-    } else if (tab === 'hitter') {
-      const load = () => api.get(`/api/stats/hitters?sort=${hSort}&limit=50`).then(r => setHitters(r.data.hitters)).catch(() => {}).finally(done);
-      load();
-      const t = setInterval(load, 60000);
-      return () => clearInterval(t);
-    } else {
-      api.get(`/api/stats/pitchers?sort=${pSort}&limit=50`).then(r => setPitchers(r.data.pitchers)).catch(() => {}).finally(done);
+        if (isCurrent) {
+          res.data.teams.forEach((t: TeamRank) =>
+            api.get(`/api/teams/${encodeURIComponent(t.team_name)}/recent`)
+              .then(r => alive && setRecent(prev => ({ ...prev, [t.team_name]: r.data.recent }))).catch(() => {}));
+        }
+      }).catch(() => alive && setTeams([])).finally(done);
+      return () => { alive = false; };
     }
-  }, [tab, hSort, pSort]);
+
+    if (tab === 'hitter') {
+      const load = () => api.get(`/api/stats/hitters?sort=${hSort}&limit=50&${q}`)
+        .then(r => alive && setHitters(r.data.hitters)).catch(() => alive && setHitters([])).finally(done);
+      setHitters([]); load();
+      const t = isCurrent ? setInterval(load, 60000) : undefined;
+      return () => { alive = false; if (t) clearInterval(t); };
+    }
+
+    setPitchers([]);
+    api.get(`/api/stats/pitchers?sort=${pSort}&limit=50&${q}`)
+      .then(r => alive && setPitchers(r.data.pitchers)).catch(() => alive && setPitchers([])).finally(done);
+    return () => { alive = false; };
+  }, [tab, hSort, pSort, season]);
 
   const rankCell = (i: number) => <span className={i < 3 ? 'text-orange-400 font-bold' : 'text-gray-500'}>{i + 1}</span>;
   const th = 'px-4 py-3 text-center font-medium whitespace-nowrap';
+  const empty = <p className="text-gray-500 py-16 text-center">{season}시즌 기록이 없습니다.</p>;
 
   const sortBar = (opts: string[][], cur: string, set: (v: string) => void) => (
-    <div className="flex gap-2 mb-5">
+    <div className="flex gap-2 mb-5 flex-wrap">
       {opts.map(([k, label]) => (
         <button key={k} onClick={() => set(k)}
           className={`text-sm px-3 py-1.5 rounded-md border transition-colors ${cur === k ? 'border-orange-500 text-orange-400' : 'border-gray-700 text-gray-400 hover:text-orange-400 hover:border-gray-500'}`}>
@@ -124,9 +144,21 @@ export default function StatsPage() {
 
   return (
     <div className="min-h-screen bg-gray-900 pb-20">
-      <header className="px-10 pt-10 pb-6 border-b border-gray-800">
-        <h1 className="text-white text-3xl font-bold">기록실</h1>
-        <p className="text-gray-400 mt-1">2026 KBO 시즌 팀 · 선수 기록</p>
+      <header className="px-10 pt-10 pb-6 border-b border-gray-800 flex items-end justify-between gap-6 flex-wrap">
+        <div>
+          <h1 className="text-white text-3xl font-bold">기록실</h1>
+          <p className="text-gray-400 mt-1">{season} KBO 시즌 팀 · 선수 기록{!isCurrent && ' (지난 시즌)'}</p>
+        </div>
+                <div className="flex items-center gap-2">
+          <button onClick={() => setSeason(s => Math.max(2015, s - 1))} disabled={season <= 2015} aria-label="이전 시즌"
+            className="w-9 h-9 border border-gray-700 hover:border-orange-400 hover:text-orange-400 text-white rounded-lg transition-colors disabled:opacity-30 disabled:cursor-not-allowed">←</button>
+          <select value={season} onChange={e => setSeason(Number(e.target.value))} aria-label="시즌 선택"
+            className="bg-gray-800 text-white font-semibold border border-gray-700 rounded-lg px-3 py-2 w-28 focus:outline-none focus:border-orange-400 transition-colors">
+            {SEASONS.map(y => <option key={y} value={y}>{y} 시즌</option>)}
+          </select>
+          <button onClick={() => setSeason(s => Math.min(CURRENT, s + 1))} disabled={season >= CURRENT} aria-label="다음 시즌"
+            className="w-9 h-9 border border-gray-700 hover:border-orange-400 hover:text-orange-400 text-white rounded-lg transition-colors disabled:opacity-30 disabled:cursor-not-allowed">→</button>
+        </div>
       </header>
 
       <nav className="px-10 flex gap-6 border-b border-gray-800">
@@ -141,14 +173,15 @@ export default function StatsPage() {
       <main className="px-10 py-8">
         {loading && <p className="text-gray-500 py-16 text-center animate-pulse">데이터를 불러오는 중입니다.</p>}
 
-        {!loading && tab === 'team' && (
+        {!loading && tab === 'team' && (teams.length === 0 ? empty : (
           <div className="border border-gray-800 rounded-lg overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="bg-gray-800/60 text-gray-400">
                 <tr>
                   <th className={`${th} text-left w-16`}>순위</th>
                   <th className={`${th} text-left`}>팀</th>
-                  {['경기', '승', '패', '무', '승률', '최근 5경기'].map(h => <th key={h} className={th}>{h}</th>)}
+                  {['경기', '승', '패', '무', '승률'].map(h => <th key={h} className={th}>{h}</th>)}
+                  {isCurrent && <th className={th}>최근 5경기</th>}
                 </tr>
               </thead>
               <tbody>
@@ -161,24 +194,26 @@ export default function StatsPage() {
                     <td className="px-4 py-3.5 text-center text-red-400">{t.losses}</td>
                     <td className="px-4 py-3.5 text-center text-gray-400">{t.draws}</td>
                     <td className={`px-4 py-3.5 text-center font-semibold ${i < 3 ? 'text-orange-400' : 'text-gray-300'}`}>{Number(t.win_rate).toFixed(3)}</td>
-                    <td className="px-4 py-3.5">
-                      <div className="flex items-center justify-center gap-1">
-                        {(recent[t.team_name] ?? []).map((g, gi) => (
-                          <span key={gi} title={`${g.date} vs ${g.opponent} ${g.score}`}
-                            className={`w-6 h-6 rounded-md text-xs font-bold flex items-center justify-center cursor-default ${FORM[g.result]}`}>{FORM_LABEL[g.result]}</span>
-                        ))}
-                        {!(recent[t.team_name] ?? []).length && <span className="text-gray-600 text-xs animate-pulse">불러오는 중</span>}
-                      </div>
-                    </td>
+                    {isCurrent && (
+                      <td className="px-4 py-3.5">
+                        <div className="flex items-center justify-center gap-1">
+                          {(recent[t.team_name] ?? []).map((g, gi) => (
+                            <span key={gi} title={`${g.date} vs ${g.opponent} ${g.score}`}
+                              className={`w-6 h-6 rounded-md text-xs font-bold flex items-center justify-center cursor-default ${FORM[g.result]}`}>{FORM_LABEL[g.result]}</span>
+                          ))}
+                          {!(recent[t.team_name] ?? []).length && <span className="text-gray-600 text-xs animate-pulse">불러오는 중</span>}
+                        </div>
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-        )}
+        ))}
 
-        {!loading && tab === 'hitter' && (<>{sortBar(HITTER_SORT, hSort, setHSort)}{playerTable(hitters, HITTER_COLS, true)}</>)}
-        {!loading && tab === 'pitcher' && (<>{sortBar(PITCHER_SORT, pSort, setPSort)}{playerTable(pitchers, PITCHER_COLS, false)}</>)}
+        {!loading && tab === 'hitter' && (<>{sortBar(HITTER_SORT, hSort, setHSort)}{hitters.length === 0 ? empty : playerTable(hitters, HITTER_COLS, true)}</>)}
+        {!loading && tab === 'pitcher' && (<>{sortBar(PITCHER_SORT, pSort, setPSort)}{pitchers.length === 0 ? empty : playerTable(pitchers, PITCHER_COLS, false)}</>)}
       </main>
     </div>
   );

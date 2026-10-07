@@ -506,7 +506,21 @@ def delete_record(record_id:int,current_user=Depends(get_current_user)):
         if c: c.close()
 
 @app.get("/api/stats/team-rank")
-def get_team_rank():
+def get_team_rank(season:Optional[int]=None):
+    if season and season!=SEASON:
+        try:
+            c=get_conn(); cr=get_cur(c)
+            cr.execute("""
+                SELECT t.team_name, SUM(ps.w)+SUM(ps.l) AS games, SUM(ps.w) AS wins, SUM(ps.l) AS losses, 0 AS draws,
+                       ROUND(SUM(ps.w)::numeric/NULLIF(SUM(ps.w)+SUM(ps.l),0),3) AS win_rate,
+                       ROW_NUMBER() OVER(ORDER BY SUM(ps.w)::numeric/NULLIF(SUM(ps.w)+SUM(ps.l),0) DESC) AS rank
+                FROM player_pitcher_stats ps JOIN teams t ON t.team_id=ps.team_id
+                WHERE ps.season_year=%s GROUP BY t.team_name
+                HAVING SUM(ps.w)+SUM(ps.l)>=80
+                ORDER BY win_rate DESC""",(season,))
+            r=cr.fetchall(); cr.close(); c.close()
+            return {"teams":rows(r),"source":"db","season":season}
+        except Exception as e: raise HTTPException(500,str(e))
     try:
         data=urllib.parse.urlencode({"leId":"1","srId":"0","seasonId":"2026"}).encode()
         req=urllib.request.Request("https://www.koreabaseball.com/ws/Main.asmx/GetTeamRank",data=data,
@@ -541,8 +555,8 @@ def get_hitters(sort:Optional[str]="woba",limit:int=50,season:Optional[int]=None
         c=get_conn(); cr=get_cur(c)
         sc_map={"woba":"woba","ops":"pst.ops","hr":"pst.hr","avg":"pst.avg","rbi":"pst.rbi"}
         s=sc_map.get(sort,"woba")
-        cr.execute("SELECT MAX(games) FROM team_rank_stats WHERE season_year=%s",(target_season,))
-        min_pa=int((cr.fetchone()['max'] or 1)*3.1)
+        cr.execute("SELECT MAX(pa) AS m FROM player_hitter_stats WHERE season_year=%s",(target_season,))
+        min_pa=max(int((cr.fetchone()['m'] or 0)*0.7),50)
         cr.execute(f"""SELECT p.player_id,p.player_name,t.team_name,pst.avg,pst.pa,pst.hr,pst.rbi,pst.obp,pst.slg,pst.ops,
             ROUND(CAST(pst.bb AS NUMERIC)/NULLIF(pst.pa,0)*100,1) AS bb_rate,
             ROUND(CAST(pst.so AS NUMERIC)/NULLIF(pst.pa,0)*100,1) AS k_rate,
@@ -562,8 +576,8 @@ def get_pitchers(sort:Optional[str]="era",limit:int=50,season:Optional[int]=None
     target_season = season or SEASON
     try:
         c=get_conn(); cr=get_cur(c)
-        cr.execute("SELECT MAX(games) FROM team_rank_stats WHERE season_year=%s",(target_season,))
-        r=cr.fetchone(); min_ip=(r['max'] if r and r['max'] else 1)
+        cr.execute("SELECT MAX(CAST(REGEXP_REPLACE(ip,'[^0-9].*','') AS NUMERIC)) AS m FROM player_pitcher_stats WHERE season_year=%s AND ip IS NOT NULL",(target_season,))
+        min_ip=max(float(cr.fetchone()['m'] or 0)*0.7,10)
         sc_map={"era":"ps.era","w":"ps.w","sv":"ps.sv","hld":"ps.hld","so":"ps.so","whip":"ps.whip"}
         s=sc_map.get(sort,"ps.era")
         IPN="(CAST(REGEXP_REPLACE(ps.ip,'[^0-9].*','') AS NUMERIC)+CASE WHEN ps.ip LIKE '%%2/3%%' THEN 0.667 WHEN ps.ip LIKE '%%1/3%%' THEN 0.333 ELSE 0 END)"
