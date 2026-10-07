@@ -558,23 +558,26 @@ def get_hitters(sort:Optional[str]="woba",limit:int=50,season:Optional[int]=None
     except Exception as e: raise HTTPException(500,str(e))
 
 @app.get("/api/stats/pitchers")
-def get_pitchers(sort:Optional[str]="era",limit:int=50,season:Optional[int]=None):
+def get_pitchers(sort:Optional[str]="era",limit:int=50,season:Optional[int]=None,starter:bool=False):
     target_season = season or SEASON
     try:
         c=get_conn(); cr=get_cur(c)
         cr.execute("SELECT MAX(games) FROM team_rank_stats WHERE season_year=%s",(target_season,))
-        r=cr.fetchone(); max_games=r['max'] if r and r['max'] else 1; min_ip=max_games
-        sc_map={"era":"ps.era","w":"ps.w","sv":"ps.sv","so":"ps.so","whip":"ps.whip"}
-        s=sc_map.get(sort,"ps.era"); order="ASC" if sort in ("era","whip") else "DESC"
-        cr.execute(f"""SELECT p.player_id,p.player_name,t.team_name,ps.era,ps.g,ps.gs,ps.w,ps.l,ps.sv,ps.hld,ps.ip,ps.so,ps.bb,ps.hr,ps.whip,ps.wpct,
-            CAST(REGEXP_REPLACE(ps.ip,'[^0-9].*','') AS NUMERIC)+
-            CASE WHEN ps.ip LIKE '%%2/3%%' THEN 0.667 WHEN ps.ip LIKE '%%1/3%%' THEN 0.333 ELSE 0 END AS ip_numeric
+        r=cr.fetchone(); min_ip=(r['max'] if r and r['max'] else 1)
+        sc_map={"era":"ps.era","w":"ps.w","sv":"ps.sv","hld":"ps.hld","so":"ps.so","whip":"ps.whip"}
+        s=sc_map.get(sort,"ps.era")
+        IPN="(CAST(REGEXP_REPLACE(ps.ip,'[^0-9].*','') AS NUMERIC)+CASE WHEN ps.ip LIKE '%%2/3%%' THEN 0.667 WHEN ps.ip LIKE '%%1/3%%' THEN 0.333 ELSE 0 END)"
+        where=["ps.season_year=%s","ps.ip IS NOT NULL"]; params=[target_season]
+        if sort in ("era","whip") or sort not in sc_map: where.append(f"{IPN}>=%s"); params.append(min_ip)
+        if sort=="sv": where.append("ps.sv>0")
+        if sort=="hld": where.append("ps.hld>0")
+        if starter: where.append("ps.gs>=3")
+        order=f"{s} {'ASC' if sort in ('era','whip') or sort not in sc_map else 'DESC'} NULLS LAST"
+        if sort in ("sv","hld","w","so"): order+=", ps.era ASC NULLS LAST"
+        cr.execute(f"""SELECT p.player_id,p.player_name,t.team_name,ps.era,ps.g,ps.gs,ps.w,ps.l,ps.sv,ps.hld,ps.ip,ps.so,ps.bb,ps.hr,ps.whip,ps.wpct,{IPN} AS ip_numeric
             FROM player_pitcher_stats ps JOIN players p ON ps.player_id=p.player_id
             JOIN teams t ON ps.team_id=t.team_id
-            WHERE ps.season_year=%s AND ps.ip IS NOT NULL AND ps.gs>=3
-            AND (CAST(REGEXP_REPLACE(ps.ip,'[^0-9].*','') AS NUMERIC)+
-                 CASE WHEN ps.ip LIKE '%%2/3%%' THEN 0.667 WHEN ps.ip LIKE '%%1/3%%' THEN 0.333 ELSE 0 END)>=%s
-            ORDER BY {s} {order} NULLS LAST LIMIT %s""",(target_season,min_ip,limit))
+            WHERE {' AND '.join(where)} ORDER BY {order} LIMIT %s""",params+[limit])
         r=cr.fetchall(); cr.close(); c.close()
         return {"pitchers":rows(r)}
     except Exception as e: raise HTTPException(500,str(e))

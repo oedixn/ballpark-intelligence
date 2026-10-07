@@ -83,7 +83,7 @@ function SpotlightSection({ onSelect }: { onSelect: (id: string) => void }) {
   useEffect(() => {
     fetch(import.meta.env.VITE_API_URL + `/api/stats/hitters?sort=woba&limit=5&season=${year}`)
       .then(r => r.json()).then(d => { setHitters(d.hitters ?? []); setSeq(s => s + 1); }).catch(() => setHitters([]));
-    fetch(import.meta.env.VITE_API_URL + `/api/stats/pitchers?sort=era&limit=5&season=${year}`)
+    fetch(import.meta.env.VITE_API_URL + `/api/stats/pitchers?sort=era&limit=5&season=${year}&starter=true`)
       .then(r => r.json()).then(d => setPitchers(d.pitchers ?? [])).catch(() => setPitchers([]));
   }, [year]);
 
