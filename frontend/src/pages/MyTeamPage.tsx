@@ -129,9 +129,9 @@ function handleDragEnd(event: any) {
   function handleSimulate() {
     if (filledCount !== 9) return;
     const lineupData = filledPlayers.map((p) => ({
-      name: p.name, ab: p.raw?.ab ?? 300, hits: p.raw?.hits ?? 80, double: p.raw?.double ?? 15,
-      triple: p.raw?.triple ?? 2, hr: p.raw?.hr ?? 5, bb: p.raw?.bb ?? 30, hbp: p.raw?.hbp ?? 3,
-    }));
+  name: p.name, position: p.position, ab: p.raw?.ab ?? 300, hits: p.raw?.hits ?? 80, double: p.raw?.double ?? 15,
+  triple: p.raw?.triple ?? 2, hr: p.raw?.hr ?? 5, bb: p.raw?.bb ?? 30, hbp: p.raw?.hbp ?? 3,
+}));
     navigate('/simulator', { state: { lineup: lineupData, teamName: teamName.trim() || '나만의 팀', opponent } });
   }
 
