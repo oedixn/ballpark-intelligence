@@ -386,6 +386,26 @@ def get_lineup(team_name:str):
     except HTTPException: raise
     except Exception as e: raise HTTPException(500,str(e))
 
+@app.get("/api/teams/{team_name}/batters")
+def get_team_batters(team_name:str):
+    try:
+        c=get_conn(); cr=get_cur(c)
+        cr.execute("""
+            SELECT p.player_id, p.player_name AS name, pst.pa, pst.ab, pst.h AS hits,
+                   pst.double_hit AS double, pst.triple_hit AS triple, pst.hr, pst.bb, pst.hbp,
+                   COALESCE((SELECT d.position FROM player_defense_stats d
+                             WHERE d.player_id=p.player_id AND d.season_year=pst.season_year LIMIT 1),
+                            p.profile_position) AS position
+            FROM players p
+            JOIN player_hitter_stats pst ON p.player_id=pst.player_id
+            JOIN teams t ON pst.team_id=t.team_id
+            WHERE t.team_name=%s AND pst.season_year=%s AND pst.pa>=20
+            ORDER BY pst.pa DESC LIMIT 30
+        """,(team_name,SEASON))
+        r=cr.fetchall(); cr.close(); c.close()
+        return {"batters":rows(r)}
+    except Exception as e: raise HTTPException(500,str(e))
+
 @app.get("/api/pitchers/{team_name}")
 def get_team_pitchers(team_name:str):
     try:
