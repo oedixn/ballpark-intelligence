@@ -6,6 +6,7 @@ import type { PitcherInfo } from '../../api/simulatorApi';
 import { getTeamLogo } from '../../utils/teamLogo';
 
 export interface Batter { name: string; ab: number; hits: number; double: number; triple: number; hr: number; bb: number; hbp: number; pa?: number; position?: string | null }
+export interface Staff { starters: string[]; bullpen: Record<string, string> }
 
 interface Props {
   side: 'AWAY' | 'HOME';
@@ -13,9 +14,11 @@ interface Props {
   onTeamChange: (name: string) => void;
   pitchers: PitcherInfo[]; pitcherId: string; onPitcherChange: (id: string) => void;
   lineup: Batter[]; onLineupChange: (l: Batter[]) => void;
+  staff?: Staff; staffStarter?: string; onStaffStarterChange?: (name: string) => void;
 }
 
 const POSITIONS = ['포수', '1루수', '2루수', '3루수', '유격수', '좌익수', '중견수', '우익수', '지명타자'];
+const ROLES = ['중계', '셋업', '롱릴리프', '마무리'];
 
 const sel = { background: '#1a1a1a', color: '#f97316', border: '2px solid #374151', padding: '8px 10px', fontSize: '13px', fontFamily: 'inherit', outline: 'none', cursor: 'pointer', width: '100%' } as const;
 const mini = { background: '#1a1a1a', color: '#9ca3af', border: '1px solid #374151', fontSize: '11px', padding: '2px 8px', cursor: 'pointer', fontFamily: 'inherit' } as const;
@@ -48,7 +51,7 @@ function LineupRow({ index, p, pos, dup, onPos, onRemove }: {
   );
 }
 
-export default function TeamSetup({ side, teamName, teams, excludeTeam, onTeamChange, pitchers, pitcherId, onPitcherChange, lineup, onLineupChange }: Props) {
+export default function TeamSetup({ side, teamName, teams, excludeTeam, onTeamChange, pitchers, pitcherId, onPitcherChange, lineup, onLineupChange, staff, staffStarter, onStaffStarterChange }: Props) {
   const isKbo = teams.includes(teamName);
   const [batters, setBatters] = useState<Batter[]>([]);
 
@@ -95,11 +98,38 @@ export default function TeamSetup({ side, teamName, teams, excludeTeam, onTeamCh
         </select>
       </div>
 
-      <p style={cap}>선발투수</p>
-      <select value={pitcherId} onChange={e => onPitcherChange(e.target.value)} style={{ ...sel, marginBottom: '16px' }}>
-        <option value="">선택 안함</option>
-        {pitchers.map(p => <option key={p.player_id} value={p.player_id}>{p.player_name} (ERA {p.era} / GS {p.gs})</option>)}
-      </select>
+      {staff ? (
+        <div style={{ marginBottom: '16px' }}>
+          <p style={cap}>선발투수 (경기에 투입)</p>
+          <select value={staffStarter ?? ''} onChange={e => onStaffStarterChange?.(e.target.value)} style={{ ...sel, marginBottom: '12px' }}>
+            {staff.starters.length === 0 && <option value="">선택된 선발 없음</option>}
+            {staff.starters.map((n, i) => <option key={n} value={n}>선발 {i + 1} · {n}</option>)}
+          </select>
+
+          <p style={cap}>불펜 (구성 표시용, 경기 중 교체 미반영)</p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
+            {ROLES.map(r => (
+              <div key={r} style={{ display: 'flex', gap: '10px', background: '#111', border: '1px solid #1f2937', padding: '5px 8px' }}>
+                <span style={{ color: '#6b7280', fontSize: '11px', width: 64 }}>{r}</span>
+                <span style={{ color: staff.bullpen[r] ? '#e5e7eb' : '#4b5563', fontSize: '12px' }}>{staff.bullpen[r] ?? '선택 안 함'}</span>
+              </div>
+            ))}
+          </div>
+          {staff.starters.length > 1 && (
+            <p style={{ color: '#6b7280', fontSize: '11px', marginTop: '8px' }}>
+              {staff.starters.map((n, i) => `${i + 1}. ${n}`).join('  ')}
+            </p>
+          )}
+        </div>
+      ) : (
+        <>
+          <p style={cap}>선발투수</p>
+          <select value={pitcherId} onChange={e => onPitcherChange(e.target.value)} style={{ ...sel, marginBottom: '16px' }}>
+            <option value="">선택 안함</option>
+            {pitchers.map(p => <option key={p.player_id} value={p.player_id}>{p.player_name} (ERA {p.era} / GS {p.gs})</option>)}
+          </select>
+        </>
+      )}
 
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
         <p style={{ ...cap, marginBottom: 0 }}>

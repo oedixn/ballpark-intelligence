@@ -87,7 +87,7 @@ export default function SimulatorPage() {
   const { isAuthenticated } = useAuth();
   const location = useLocation();
   const [searchParams] = useSearchParams();
-  const fromMyTeam = location.state as { lineup: typeof DEFAULT_LINEUP_A; teamName: string; opponent: string } | null;
+  const fromMyTeam = location.state as { lineup: typeof DEFAULT_LINEUP_A; teamName: string; opponent: string; pitchers?: { starters: string[]; bullpen: Record<string, string> } } | null;
   const urlTeamA = searchParams.get('team_a');
   const urlTeamB = searchParams.get('team_b');
 
@@ -100,6 +100,7 @@ export default function SimulatorPage() {
   const [pitchersB, setPitchersB] = useState<PitcherInfo[]>([]);
   const [pitcherAId, setPitcherAId] = useState('');
   const [pitcherBId, setPitcherBId] = useState('');
+  const [customStarter, setCustomStarter] = useState(fromMyTeam?.pitchers?.starters?.[0] ?? '');
   const [loading, setLoading] = useState(false);
   const [showStats, setShowStats] = useState(false);
   const [gameLog, setGameLog] = useState<GameLog | null>(null);
@@ -124,6 +125,9 @@ export default function SimulatorPage() {
   const bannerTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const shakeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const logScrollRef = useRef<HTMLDivElement>(null);
+
+  // 나만의 팀에서 넘어온 투수진 (AWAY가 그 팀일 때만 사용)
+  const staffA = fromMyTeam && teamAName === fromMyTeam.teamName ? fromMyTeam.pitchers : undefined;
 
   useEffect(() => {
     if (!urlTeamA && !urlTeamB) return;
@@ -212,7 +216,12 @@ export default function SimulatorPage() {
 
   const pitcherParams = () => {
     const a = pitchersA.find(p => p.player_id === pitcherAId), b = pitchersB.find(p => p.player_id === pitcherBId);
-    return { pitcher_a: a?.player_name, pitcher_b: b?.player_name, pitcher_a_id: a?.player_id, pitcher_b_id: b?.player_id };
+    return {
+      pitcher_a: staffA ? (customStarter || undefined) : a?.player_name,
+      pitcher_b: b?.player_name,
+      pitcher_a_id: staffA ? undefined : a?.player_id,
+      pitcher_b_id: b?.player_id,
+    };
   };
 
   async function handleStart() {
@@ -333,7 +342,8 @@ export default function SimulatorPage() {
           <div style={{ marginTop: '20px', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(420px, 1fr))', gap: '20px' }}>
             <TeamSetup side="AWAY" teamName={teamAName} teams={KBO_TEAMS} excludeTeam={teamBName}
               onTeamChange={(n) => changeTeam('A', n)} pitchers={pitchersA} pitcherId={pitcherAId} onPitcherChange={setPitcherAId}
-              lineup={teamALineup} onLineupChange={setTeamALineup} />
+              lineup={teamALineup} onLineupChange={setTeamALineup}
+              staff={staffA} staffStarter={customStarter} onStaffStarterChange={setCustomStarter} />
             <TeamSetup side="HOME" teamName={teamBName} teams={KBO_TEAMS} excludeTeam={teamAName}
               onTeamChange={(n) => changeTeam('B', n)} pitchers={pitchersB} pitcherId={pitcherBId} onPitcherChange={setPitcherBId}
               lineup={teamBLineup} onLineupChange={setTeamBLineup} />
