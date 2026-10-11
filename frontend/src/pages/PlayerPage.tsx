@@ -22,7 +22,15 @@ const POS_COLORS: Record<string,string> = {
   '지명타자':'bg-gray-600','투수':'bg-blue-700',
 };
 
-function PlayerAvatar({ position }: { position: string }) {
+function PlayerAvatar({ position, playerId }: { position: string; playerId?: string | number }) {
+  const [broken, setBroken] = useState(false);
+  useEffect(() => { setBroken(false); }, [playerId]);
+  if (playerId && !broken) {
+    return (
+      <img src={`/players/${playerId}.jpg`} alt="" onError={() => setBroken(true)}
+        className="w-20 h-20 rounded-full object-cover object-top shrink-0 border border-gray-700" />
+    );
+  }
   return (
     <div className={`w-20 h-20 rounded-full ${POS_COLORS[position]??'bg-orange-500'} flex items-center justify-center shrink-0`}>
       <span className="text-white text-sm font-black">{position}</span>
@@ -404,7 +412,7 @@ export default function PlayerPage() {
       <div className="bg-gradient-to-r from-gray-800 to-gray-900 border-b border-gray-700 px-10 py-8">
         <div className="flex items-center gap-6">
           <button onClick={handleBack} className="text-gray-400 hover:text-white text-sm mr-2">← 목록</button>
-          <PlayerAvatar position={player.position} />
+          <PlayerAvatar position={player.position} playerId={playerId ?? raw?.player_id} />
           <div>
             <div className="flex items-center gap-3 mb-1">
               <h1 className="text-white text-4xl font-black">{player.name}</h1>
