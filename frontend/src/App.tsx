@@ -1,4 +1,5 @@
 import { BrowserRouter, Routes, Route, NavLink, Link, useNavigate } from 'react-router-dom';
+import PlayerPhoto from './components/common/PlayerPhoto';
 import { useState, useRef, useEffect } from 'react';
 import axios from 'axios';
 import HomePage from './pages/HomePage';
@@ -163,11 +164,12 @@ function NavBar() {
                     onClick={() => handleSelectPlayer(p)}
                     className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-gray-700 transition-colors text-left"
                   >
-                    <div className={`w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-black shrink-0 ${
-                      p.position === '투수' ? 'bg-blue-600' : 'bg-orange-500'
-                    }`}>
-                      {p.position === '투수' ? '투' : p.position?.[0] ?? '?'}
-                    </div>
+                    <PlayerPhoto
+                      playerId={p.player_id}
+                      fallback={p.position === '투수' ? '투' : p.position?.[0] ?? '?'}
+                      size={32}
+                      fallbackClass={p.position === '투수' ? 'bg-blue-600' : 'bg-orange-500'}
+                    />
                     <div className="flex-1 min-w-0">
                       <p className="text-white text-sm font-bold">{p.player_name}</p>
                       <p className="text-gray-500 text-xs">{p.team_name} · {p.position ?? '-'}</p>
