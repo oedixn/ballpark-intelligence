@@ -615,6 +615,7 @@ export default function PlayerPage() {
                   <div className="w-8 h-8 rounded-full bg-orange-500/20 flex items-center justify-center shrink-0">
                     <span className="text-orange-400 text-xs font-black">{i+1}</span>
                   </div>
+                  <PlayerPhoto playerId={p.player_id} fallback={p.player_name.charAt(0)} size={36} />
                   <div className="flex-1 min-w-0">
                     <p className="text-white text-sm font-bold">{p.player_name}
                       <span className="text-gray-500 text-xs ml-2">{p.team_name} · {p.season_year}</span>
