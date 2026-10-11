@@ -2,6 +2,7 @@ import { useNavigate } from 'react-router-dom';
 import { useState, useEffect } from 'react';
 import axios from 'axios';
 import { getTeamLogo } from '../utils/teamLogo';
+import PlayerPhoto from '../components/common/PlayerPhoto';
 
 const api = axios.create({ baseURL: import.meta.env.VITE_API_URL });
 
@@ -111,9 +112,7 @@ function SpotlightCard({ navigate }: { navigate: (path: string) => void }) {
     <div onClick={() => navigate(`/player/${player.player_id}`)}
       className="border border-gray-800 hover:border-gray-600 rounded-lg p-5 cursor-pointer transition-colors">
       <div className="flex items-center gap-5 flex-wrap">
-        <div className="w-12 h-12 rounded-full bg-gray-700 flex items-center justify-center text-white font-bold shrink-0">
-          {player.player_name.charAt(0)}
-        </div>
+        <PlayerPhoto playerId={player.player_id} fallback={player.player_name.charAt(0)} size={56} />
         <div className="flex-1 min-w-[200px]">
           <p className="text-gray-500 text-sm">
             오늘의 선수
