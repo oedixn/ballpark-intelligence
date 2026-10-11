@@ -11,6 +11,7 @@ import type { PlayerDB, PlayerSeasons } from '../api/playerApi';
 import type { Player } from '../data/mockPlayers';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, BarChart, Bar, PieChart, Pie, Cell } from 'recharts';
 import { getTeamLogo } from '../utils/teamLogo';
+import PlayerPhoto from '../components/common/PlayerPhoto';
 
 const MB_COLORS = ['#f97316','#60a5fa','#4ade80','#f87171','#a78bfa'];
 const API = import.meta.env.VITE_API_URL;
@@ -173,7 +174,10 @@ function SpotlightSection({ onSelect }: { onSelect: (id: string) => void }) {
                   >
                     {i < 3 ? MEDALS[i] : <span className="text-white font-black">{i + 1}</span>}
                   </div>
-                  <p className="text-white text-sm font-black truncate">{p.player_name}</p>
+                  <div className="flex items-center gap-2 mb-1">
+                    <PlayerPhoto playerId={p.player_id} fallback={p.player_name.charAt(0)} size={32} />
+                    <p className="text-white text-sm font-black truncate">{p.player_name}</p>
+                  </div>
                   <div className="flex items-center gap-1.5 mb-3">
                     {logo && <img src={logo} alt={p.team_name} className="w-3.5 h-3.5 object-contain shrink-0" />}
                     <span className="text-gray-500 text-xs truncate">{p.team_name} · {p.position ?? '-'}</span>
@@ -226,7 +230,10 @@ function SpotlightSection({ onSelect }: { onSelect: (id: string) => void }) {
                   >
                     {i < 3 ? MEDALS[i] : <span className="text-white font-black">{i + 1}</span>}
                   </div>
-                  <p className="text-white text-sm font-black truncate">{p.player_name}</p>
+                  <div className="flex items-center gap-2 mb-1">
+                    <PlayerPhoto playerId={p.player_id} fallback={p.player_name.charAt(0)} size={32} />
+                    <p className="text-white text-sm font-black truncate">{p.player_name}</p>
+                  </div>
                   <div className="flex items-center gap-1.5 mb-3">
                     {logo && <img src={logo} alt={p.team_name} className="w-3.5 h-3.5 object-contain shrink-0" />}
                     <span className="text-gray-500 text-xs truncate">{p.team_name}</span>
