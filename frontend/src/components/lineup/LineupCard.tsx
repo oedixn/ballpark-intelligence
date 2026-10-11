@@ -1,6 +1,7 @@
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import type { Player } from '../../data/mockPlayers';
+import PlayerPhoto from '../common/PlayerPhoto';
 
 interface Props {
   player: Player;
@@ -30,8 +31,11 @@ export default function LineupCard({ player, order }: Props) {
 
       {/* 포지션 뱃지 */}
       <span className="bg-gray-600 text-gray-300 text-xs font-bold px-2 py-1 rounded w-14 text-center shrink-0 whitespace-nowrap">
-      {player.position}
+        {player.position}
       </span>
+
+      {/* 선수 사진 */}
+      <PlayerPhoto playerId={player.id} fallback={player.name.charAt(0)} size={36} fallbackClass="bg-gray-500" />
 
       {/* 선수명 */}
       <span className="text-white font-semibold">{player.name}</span>
