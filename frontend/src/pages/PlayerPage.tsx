@@ -23,6 +23,20 @@ const POS_COLORS: Record<string,string> = {
   '지명타자':'bg-gray-600','투수':'bg-blue-700',
 };
 
+// 국가대표 명단은 이름 대신 KBO player_id로 관리합니다.
+// 동명이인이나 소속팀 변경이 있어도 정확한 선수에게만 배지가 표시됩니다.
+const NATIONAL_TEAM_PLAYER_IDS = new Set([
+  // 투수
+  '55167', '51897', '55455', '52060', '50030', '50859',
+  '50556', '51516', '54610', '68220', '55268',
+  // 포수
+  '51865', '53312',
+  // 내야수
+  '69102', '69737', '54812', '52415', '51907', '52605', '55252',
+  // 외야수
+  '53764', '50458', '52591', '55636',
+]);
+
 function PlayerAvatar({ position, playerId }: { position: string; playerId?: string | number }) {
   const [broken, setBroken] = useState(false);
   useEffect(() => { setBroken(false); }, [playerId]);
@@ -431,6 +445,17 @@ export default function PlayerPage() {
               )}
               {raw?.bat_throw && (
                 <><span className="text-gray-600">·</span><span>{raw.bat_throw}</span></>
+              )}
+              {raw && NATIONAL_TEAM_PLAYER_IDS.has(String(raw.player_id)) && (
+                <>
+                  <span className="text-gray-600">·</span>
+                  <span
+                    className="inline-flex items-center rounded-full border border-amber-400/50 bg-amber-400/10 px-2 py-0.5 text-xs font-bold text-amber-300"
+                    title="국가대표"
+                  >
+                    국가대표
+                  </span>
+                </>
               )}
             </div>
             {(raw?.birth_date || (raw?.height_cm != null && raw?.weight_kg != null)) && (
