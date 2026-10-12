@@ -5,7 +5,7 @@ from pydantic import BaseModel
 from typing import List, Optional
 from decimal import Decimal
 from datetime import date, datetime
-import sys, os, psycopg2.extras, re, urllib.request, urllib.parse, json as J, math
+import logging, sys, os, psycopg2.extras, re, urllib.request, urllib.parse, json as J, math
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from game_simulator.simulator_main import (
@@ -13,8 +13,16 @@ from game_simulator.simulator_main import (
     MatchSimulator, LineupMonteCarloSimulator, LineupMarkovModel,
     PitcherProb, adjust_lineup_by_pitcher, LeagueAverageProb,
 )
-from app.db import get_connection
+from app.db import get_connection, with_connection_cleanup
 from app.auth import create_access_token, get_current_user, hash_password, verify_password
+
+logger = logging.getLogger(__name__)
+
+
+def raise_internal_error() -> None:
+    """Log the real exception while returning a safe message to the client."""
+    logger.exception("API 요청 처리 중 예기치 않은 오류가 발생했습니다.")
+    raise HTTPException(500, "서버 처리 중 오류가 발생했습니다.")
 
 def clean(v):
     if isinstance(v, Decimal): return None if v.is_nan() else float(v)
@@ -230,6 +238,7 @@ def _public_user(user):
     }
 
 @app.post("/api/auth/register", status_code=201)
+@with_connection_cleanup
 def register(req:RegisterRequest):
     email=req.email.strip().lower()
     display_name=req.display_name.strip()
@@ -271,12 +280,14 @@ def register(req:RegisterRequest):
     except HTTPException: raise
     except Exception:
         if c: c.rollback()
+        logger.exception("회원가입 처리 중 DB 오류가 발생했습니다.")
         raise HTTPException(500,"회원가입 처리 중 오류가 발생했습니다.")
     finally:
         if cr: cr.close()
         if c: c.close()
 
 @app.post("/api/auth/login")
+@with_connection_cleanup
 def login(req:LoginRequest):
     c=None; cr=None
     try:
@@ -291,6 +302,7 @@ def login(req:LoginRequest):
         return {"access_token":create_access_token(user["id"]),"token_type":"bearer","user":_public_user(user)}
     except HTTPException: raise
     except Exception:
+        logger.exception("로그인 처리 중 DB 오류가 발생했습니다.")
         raise HTTPException(500,"로그인 처리 중 오류가 발생했습니다.")
     finally:
         if cr: cr.close()
@@ -301,6 +313,7 @@ def get_me(current_user=Depends(get_current_user)):
     return {"user":_public_user(current_user)}
 
 @app.get("/api/players")
+@with_connection_cleanup
 def get_players(search: Optional[str]=None):
     try:
         c=get_conn(); cr=get_cur(c); like=[f"%{search}%"]*2 if search else []
@@ -314,9 +327,10 @@ def get_players(search: Optional[str]=None):
         pitchers=cr.fetchall(); cr.close(); c.close()
         ids={r['player_id'] for r in hitters}
         return {"players":rows(hitters)+[row(r) for r in pitchers if r['player_id'] not in ids]}
-    except Exception as e: raise HTTPException(500,str(e))
+    except Exception: raise_internal_error()
 
 @app.get("/api/players/{player_id}")
+@with_connection_cleanup
 def get_player(player_id:int, season:Optional[int]=None):
     target=season or SEASON
     try:
@@ -365,17 +379,19 @@ def get_player(player_id:int, season:Optional[int]=None):
         result['awards']=awards; result['club_career']=club_career
         return result
     except HTTPException: raise
-    except Exception as e: raise HTTPException(500,str(e))
+    except Exception: raise_internal_error()
 
 @app.get("/api/teams")
+@with_connection_cleanup
 def get_teams():
     try:
         c=get_conn(); cr=get_cur(c); cr.execute("SELECT * FROM teams ORDER BY team_name")
         r=cr.fetchall(); cr.close(); c.close()
         return {"teams":rows(r)}
-    except Exception as e: raise HTTPException(500,str(e))
+    except Exception: raise_internal_error()
 
 @app.get("/api/teams/{team_name}/lineup")
+@with_connection_cleanup
 def get_lineup(team_name:str):
     try:
         c=get_conn(); cr=get_cur(c)
@@ -384,9 +400,10 @@ def get_lineup(team_name:str):
         if not r: raise HTTPException(404,"팀을 찾을 수 없습니다.")
         return {"lineup":rows(r)}
     except HTTPException: raise
-    except Exception as e: raise HTTPException(500,str(e))
+    except Exception: raise_internal_error()
 
 @app.get("/api/teams/{team_name}/batters")
+@with_connection_cleanup
 def get_team_batters(team_name:str):
     try:
         c=get_conn(); cr=get_cur(c)
@@ -404,9 +421,10 @@ def get_team_batters(team_name:str):
         """,(team_name,SEASON))
         r=cr.fetchall(); cr.close(); c.close()
         return {"batters":rows(r)}
-    except Exception as e: raise HTTPException(500,str(e))
+    except Exception: raise_internal_error()
 
 @app.get("/api/pitchers/{team_name}")
+@with_connection_cleanup
 def get_team_pitchers(team_name:str):
     try:
         c=get_conn(); cr=get_cur(c)
@@ -420,10 +438,11 @@ def get_team_pitchers(team_name:str):
         """, (team_name, SEASON))
         r=cr.fetchall(); cr.close(); c.close()
         return {"pitchers": rows(r)}
-    except Exception as e: raise HTTPException(500,str(e))
+    except Exception: raise_internal_error()
 
 @app.post("/api/simulate/game")
 @app.post("/game")
+@with_connection_cleanup
 def simulate_game(req:SimReq):
     ta=[record_to_player_prob(BattingRecord(**p.dict())) for p in req.team_a_lineup]
     tb=[record_to_player_prob(BattingRecord(**p.dict())) for p in req.team_b_lineup]
@@ -438,6 +457,7 @@ def simulate_game(req:SimReq):
     return {"team_a_name":req.team_a_name,"team_b_name":req.team_b_name,"game_log":g,"is_draw":g.final_score[0]==g.final_score[1]}
 
 @app.post("/api/simulate/multi")
+@with_connection_cleanup
 def simulate_multi(req:MultiReq):
     ta=[record_to_player_prob(BattingRecord(**p.dict())) for p in req.team_a_lineup]
     tb=[record_to_player_prob(BattingRecord(**p.dict())) for p in req.team_b_lineup]
@@ -456,6 +476,7 @@ def simulate_multi(req:MultiReq):
     return {"team_a":st(req.team_a_name,ra,ma,da),"team_b":st(req.team_b_name,rb,mb,db),"n_games":req.n_games}
 
 @app.post("/api/records")
+@with_connection_cleanup
 def save_record(req:RecordCreate,current_user=Depends(get_current_user)):
     c=None; cr=None
     try:
@@ -465,12 +486,14 @@ def save_record(req:RecordCreate,current_user=Depends(get_current_user)):
         return {"id":rid,"message":"전적이 저장되었습니다."}
     except Exception:
         if c: c.rollback()
+        logger.exception("전적 저장 중 DB 오류가 발생했습니다.")
         raise HTTPException(500,"전적 저장 중 오류가 발생했습니다.")
     finally:
         if cr: cr.close()
         if c: c.close()
 
 @app.get("/api/records")
+@with_connection_cleanup
 def get_records(team_name:Optional[str]=None,current_user=Depends(get_current_user)):
     c=None; cr=None
     try:
@@ -480,12 +503,14 @@ def get_records(team_name:Optional[str]=None,current_user=Depends(get_current_us
         r=cr.fetchall()
         return {"records":rows(r)}
     except Exception:
+        logger.exception("전적 조회 중 DB 오류가 발생했습니다.")
         raise HTTPException(500,"전적 조회 중 오류가 발생했습니다.")
     finally:
         if cr: cr.close()
         if c: c.close()
 
 @app.delete("/api/records/{record_id}")
+@with_connection_cleanup
 def delete_record(record_id:int,current_user=Depends(get_current_user)):
     c=None; cr=None
     try:
@@ -500,12 +525,14 @@ def delete_record(record_id:int,current_user=Depends(get_current_user)):
     except HTTPException: raise
     except Exception:
         if c: c.rollback()
+        logger.exception("전적 삭제 중 DB 오류가 발생했습니다.")
         raise HTTPException(500,"전적 삭제 중 오류가 발생했습니다.")
     finally:
         if cr: cr.close()
         if c: c.close()
 
 @app.get("/api/stats/team-rank")
+@with_connection_cleanup
 def get_team_rank(season:Optional[int]=None):
     if season and season!=SEASON:
         try:
@@ -520,7 +547,7 @@ def get_team_rank(season:Optional[int]=None):
                 ORDER BY win_rate DESC""",(season,))
             r=cr.fetchall(); cr.close(); c.close()
             return {"teams":rows(r),"source":"db","season":season}
-        except Exception as e: raise HTTPException(500,str(e))
+        except Exception: raise_internal_error()
     try:
         data=urllib.parse.urlencode({"leId":"1","srId":"0","seasonId":"2026"}).encode()
         req=urllib.request.Request("https://www.koreabaseball.com/ws/Main.asmx/GetTeamRank",data=data,
@@ -546,9 +573,10 @@ def get_team_rank(season:Optional[int]=None):
             cr.execute("SELECT t.team_name,r.games,r.wins,r.losses,r.draws,r.win_rate,r.last10,r.streak,ROW_NUMBER() OVER(ORDER BY r.win_rate DESC) AS rank FROM team_rank_stats r JOIN teams t ON r.team_id=t.team_id WHERE r.season_year=%s ORDER BY r.win_rate DESC",(SEASON,))
             r=cr.fetchall(); cr.close(); c.close()
             return {"teams":rows(r),"source":"db"}
-        except Exception as e: raise HTTPException(500,str(e))
+        except Exception: raise_internal_error()
 
 @app.get("/api/stats/hitters")
+@with_connection_cleanup
 def get_hitters(sort:Optional[str]="woba",limit:int=50,season:Optional[int]=None):
     target_season = season or SEASON
     try:
@@ -569,9 +597,10 @@ def get_hitters(sort:Optional[str]="woba",limit:int=50,season:Optional[int]=None
             WHERE pst.season_year=%s AND pst.pa>=%s ORDER BY {s} DESC NULLS LAST LIMIT %s""",(target_season,min_pa,limit))
         r=cr.fetchall(); cr.close(); c.close()
         return {"hitters":rows(r),"min_pa":min_pa}
-    except Exception as e: raise HTTPException(500,str(e))
+    except Exception: raise_internal_error()
 
 @app.get("/api/stats/pitchers")
+@with_connection_cleanup
 def get_pitchers(sort:Optional[str]="era",limit:int=50,season:Optional[int]=None,starter:bool=False):
     target_season = season or SEASON
     try:
@@ -594,7 +623,7 @@ def get_pitchers(sort:Optional[str]="era",limit:int=50,season:Optional[int]=None
             WHERE {' AND '.join(where)} ORDER BY {order} LIMIT %s""",params+[limit])
         r=cr.fetchall(); cr.close(); c.close()
         return {"pitchers":rows(r)}
-    except Exception as e: raise HTTPException(500,str(e))
+    except Exception: raise_internal_error()
 
 @app.post("/api/lineup/optimize")
 def optimize_lineup(req:SimReq):
@@ -611,7 +640,7 @@ def optimize_lineup(req:SimReq):
         for p in ss:
             if p.name not in used: result.append(p); used.add(p.name)
         return {"optimized_order":[p.name for p in result]}
-    except Exception as e: raise HTTPException(500,str(e))
+    except Exception: raise_internal_error()
 
 def _fetch_schedule(month:str) -> list:
     data=urllib.parse.urlencode({"leId":"1","srId":"0","srIdList":"0,9","seasonId":"2026","gameWeek":"","teamId":"","stadiumId":"","gameId":"","gameDay":"","gameMonth":month}).encode()
@@ -645,11 +674,12 @@ def _parse_schedule_rows(raw_rows:list) -> list:
     return games
 
 @app.get("/api/schedule")
+@with_connection_cleanup
 def get_schedule(month:Optional[str]=None):
     try:
         tm=month or f"{datetime.now().month:02d}"
         return {"month":tm,"games":_parse_schedule_rows(_fetch_schedule(tm))}
-    except Exception as e: raise HTTPException(500,str(e))
+    except Exception: raise_internal_error()
 
 @app.get("/api/teams/{team_name}/recent")
 def get_team_recent(team_name:str):
@@ -668,7 +698,7 @@ def get_team_recent(team_name:str):
                 elif tb==team_name:
                     results.append({"date":g["date"],"opponent":ta,"score":f"{sb}:{sa}","result":"W" if f"{tb} 승" in wc_raw else "L" if f"{ta} 승" in wc_raw else "D"})
         return {"team":team_name,"recent":results[-5:] if len(results)>=5 else results}
-    except Exception as e: raise HTTPException(500,str(e))
+    except Exception: raise_internal_error()
 
 @app.get("/api/player-image/{player_id}")
 def get_player_image(player_id:int):
@@ -683,6 +713,7 @@ def get_player_image(player_id:int):
     except Exception: raise HTTPException(404,"이미지 없음")
 
 @app.get("/api/players/{player_id}/seasons")
+@with_connection_cleanup
 def get_seasons(player_id:int):
     try:
         c=get_conn(); cr=get_cur(c)
@@ -699,9 +730,10 @@ def get_seasons(player_id:int):
         elif pr: return {"type":"pitcher","seasons":rows(pr)}
         else: raise HTTPException(404,"데이터 없음")
     except HTTPException: raise
-    except Exception as e: raise HTTPException(500,str(e))
+    except Exception: raise_internal_error()
 
 @app.get("/api/players/{player_id}/moneyball")
+@with_connection_cleanup
 def get_moneyball(player_id:int):
     try:
         from app.ml.moneyball import get_player_moneyball
@@ -710,9 +742,10 @@ def get_moneyball(player_id:int):
         for k,v in result['features'].items(): result['features'][k]=float(v) if v is not None else None
         return result
     except HTTPException: raise
-    except Exception as e: raise HTTPException(500,str(e))
+    except Exception: raise_internal_error()
 
 @app.get("/api/moneyball/distribution")
+@with_connection_cleanup
 def get_moneyball_dist():
     try:
         from app.ml.moneyball import get_hitter_features,train_kmeans
@@ -725,9 +758,10 @@ def get_moneyball_dist():
         total=len(labels)
         return {"distribution":sorted([{"type":k,"count":v,"pct":round(v/total*100,1)} for k,v in dist.items()],key=lambda x:x["count"],reverse=True),"total":total}
     except HTTPException: raise
-    except Exception as e: raise HTTPException(500,str(e))
+    except Exception: raise_internal_error()
 
 @app.get("/api/players/{player_id}/similar")
+@with_connection_cleanup
 def get_similar(player_id:int):
     try:
         from app.ml.similar_players import get_similar_players,get_similar_pitchers
@@ -735,11 +769,12 @@ def get_similar(player_id:int):
         if not result: raise HTTPException(404,"데이터 없음")
         return result
     except HTTPException: raise
-    except Exception as e: raise HTTPException(500,str(e))
+    except Exception: raise_internal_error()
 
 _h_model=_h_sx=_h_sy=_p_model=_p_sx=_p_sy=None
 
 @app.get("/api/players/{player_id}/predict")
+@with_connection_cleanup
 def get_prediction(player_id:int):
     global _h_model,_h_sx,_h_sy,_p_model,_p_sx,_p_sy
     try:
@@ -757,4 +792,4 @@ def get_prediction(player_id:int):
         if not result: raise HTTPException(404,"예측 데이터 부족")
         return result
     except HTTPException: raise
-    except Exception as e: raise HTTPException(500,str(e))
+    except Exception: raise_internal_error()
