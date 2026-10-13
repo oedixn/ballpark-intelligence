@@ -454,21 +454,37 @@ def load_table(conn, canonical_csv: str, table_name: str) -> None:
         raw_rows = read_csv_rows(path)
         cleaned_rows = []
 
-        # 과거 수상자 중 현재 players 테이블에 없는 ID는 FK 오류를 막기 위해
-        # NULL로 저장합니다. 수상 원문은 player_name/team_name으로 보존됩니다.
+        # 수상 크롤러가 과거 선수의 KBO player_id를 찾았으면 players 마스터에
+        # 최소 정보로 먼저 등록합니다. 기존 구현처럼 ID를 NULL로 바꾸면 올바르게
+        # 매칭한 수상 내역도 선수 프로필에서 조회할 수 없게 됩니다.
         valid_player_ids = set()
         if table_name == "player_awards":
+            missing_award_players = {}
+            for award_row in raw_rows:
+                player_id = str(award_row.get("player_id") or "").strip()
+                player_name = str(award_row.get("player_name") or "").strip()
+                if player_id and player_name:
+                    missing_award_players[player_id] = player_name
+
+            for player_id, player_name in missing_award_players.items():
+                cur.execute(
+                    """
+                    INSERT INTO players (player_id, player_name)
+                    VALUES (%s, %s)
+                    ON CONFLICT (player_id) DO NOTHING
+                    """,
+                    (player_id, player_name),
+                )
+
             cur.execute("SELECT player_id FROM players")
             valid_player_ids = {str(row[0]) for row in cur.fetchall()}
 
         for row in raw_rows:
-            if (
-                table_name == "player_awards"
-                and row.get("player_id")
-                and str(row.get("player_id")).strip() not in valid_player_ids
-            ):
-                row = dict(row)
-                row["player_id"] = ""
+            if table_name == "player_awards" and row.get("player_id"):
+                # 비정상 ID가 들어온 경우에만 FK 보호를 위해 NULL 처리합니다.
+                if str(row.get("player_id")).strip() not in valid_player_ids:
+                    row = dict(row)
+                    row["player_id"] = ""
             cleaned = clean_row_for_table(row, table_name, db_columns, team_map)
             if cleaned:
                 cleaned_rows.append(cleaned)
