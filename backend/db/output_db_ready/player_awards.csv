@@ -1,0 +1,183 @@
+﻿season_year,award_type,award_name,player_id,player_name,team_name,normalized_team_name,position,match_status,candidate_ids,source_url
+2026,ALL_STAR_MVP,KBO 올스타전 MVP,52764,허인서,한화,한화,포수,matched_unique_name,52764,https://www.koreabaseball.com/Player/Awards/SeriesPrize.aspx
+2025,ALL_STAR_MVP,KBO 올스타전 MVP,79365,박동원,LG,LG,포수,matched_unique_name,79365,https://www.koreabaseball.com/Player/Awards/SeriesPrize.aspx
+2025,DEFENSE_PRIZE,KBO 수비상,54400,디아즈,삼성,삼성,1루수,matched_unique_name,54400,https://www.koreabaseball.com/Player/Awards/DefensePrize.aspx
+2025,DEFENSE_PRIZE,KBO 수비상,62907,박민우,NC,NC,2루수,matched_unique_name,62907,https://www.koreabaseball.com/Player/Awards/DefensePrize.aspx
+2025,DEFENSE_PRIZE,KBO 수비상,65357,송성문,키움,키움,3루수,matched_unique_name,65357,https://www.koreabaseball.com/Player/Awards/DefensePrize.aspx
+2025,DEFENSE_PRIZE,KBO 수비상,67449,김성윤,삼성,삼성,우익수,matched_unique_name,67449,https://www.koreabaseball.com/Player/Awards/DefensePrize.aspx
+2025,DEFENSE_PRIZE,KBO 수비상,51907,김주원,NC,NC,유격수,matched_unique_name,51907,https://www.koreabaseball.com/Player/Awards/DefensePrize.aspx
+2025,DEFENSE_PRIZE,KBO 수비상,53827,에레디아,SSG,SSG,좌익수,matched_unique_name,53827,https://www.koreabaseball.com/Player/Awards/DefensePrize.aspx
+2025,DEFENSE_PRIZE,KBO 수비상,62415,박해민,LG,LG,중견수,matched_unique_name,62415,https://www.koreabaseball.com/Player/Awards/DefensePrize.aspx
+2025,DEFENSE_PRIZE,KBO 수비상,64001,고영표,KT,KT,투수,matched_unique_name,64001,https://www.koreabaseball.com/Player/Awards/DefensePrize.aspx
+2025,DEFENSE_PRIZE,KBO 수비상,68912,김형준,NC,NC,포수,matched_unique_name,68912,https://www.koreabaseball.com/Player/Awards/DefensePrize.aspx
+2025,GOLDEN_GLOVE,KBO 골든글러브,54400,디아즈,삼성,삼성,1루수,matched_unique_name,54400,https://www.koreabaseball.com/Player/Awards/GoldenGlove.aspx
+2025,GOLDEN_GLOVE,KBO 골든글러브,65207,신민재,LG,LG,2루수,matched_unique_name,65207,https://www.koreabaseball.com/Player/Awards/GoldenGlove.aspx
+2025,GOLDEN_GLOVE,KBO 골든글러브,65357,송성문,키움,키움,3루수,matched_unique_name,65357,https://www.koreabaseball.com/Player/Awards/GoldenGlove.aspx
+2025,GOLDEN_GLOVE,KBO 골든글러브,62404,구자욱,삼성,삼성,외야수,matched_unique_name,62404,https://www.koreabaseball.com/Player/Awards/GoldenGlove.aspx
+2025,GOLDEN_GLOVE,KBO 골든글러브,54529,레이예스,롯데,롯데,외야수,matched_unique_name,54529,https://www.koreabaseball.com/Player/Awards/GoldenGlove.aspx
+2025,GOLDEN_GLOVE,KBO 골든글러브,52001,안현민,KT,KT,외야수,matched_unique_name,52001,https://www.koreabaseball.com/Player/Awards/GoldenGlove.aspx
+2025,GOLDEN_GLOVE,KBO 골든글러브,51907,김주원,NC,NC,유격수,matched_unique_name,51907,https://www.koreabaseball.com/Player/Awards/GoldenGlove.aspx
+2025,GOLDEN_GLOVE,KBO 골든글러브,72443,최형우,삼성,삼성,지명타자,matched_unique_name,72443,https://www.koreabaseball.com/Player/Awards/GoldenGlove.aspx
+2025,GOLDEN_GLOVE,KBO 골든글러브,55730,폰세,한화,한화,투수,matched_unique_name,55730,https://www.koreabaseball.com/Player/Awards/GoldenGlove.aspx
+2025,GOLDEN_GLOVE,KBO 골든글러브,76232,양의지,두산,두산,포수,matched_unique_name,76232,https://www.koreabaseball.com/Player/Awards/GoldenGlove.aspx
+2025,KOREAN_SERIES_MVP,KBO 한국시리즈 MVP,76290,김현수,LG,LG,외야수,matched_season_team,69516|76290,https://www.koreabaseball.com/Player/Awards/SeriesPrize.aspx
+2025,MVP,KBO MVP,55730,폰세,한화,한화,투수,matched_unique_name,55730,https://www.koreabaseball.com/Player/Awards/PlayerPrize.aspx
+2025,ROOKIE,KBO 신인상,52001,안현민,KT,KT,외야수,matched_unique_name,52001,https://www.koreabaseball.com/Player/Awards/PlayerPrize.aspx
+2024,ALL_STAR_MVP,KBO 올스타전 MVP,72443,최형우,KIA,KIA,외야수,matched_unique_name,72443,https://www.koreabaseball.com/Player/Awards/SeriesPrize.aspx
+2024,DEFENSE_PRIZE,KBO 수비상,53123,오스틴,LG,LG,1루수,matched_unique_name,53123,https://www.koreabaseball.com/Player/Awards/DefensePrize.aspx
+2024,DEFENSE_PRIZE,KBO 수비상,67304,김혜성,키움,키움,2루수,matched_unique_name,67304,https://www.koreabaseball.com/Player/Awards/DefensePrize.aspx
+2024,DEFENSE_PRIZE,KBO 수비상,79240,허경민,KT,KT,3루수,matched_unique_name,79240,https://www.koreabaseball.com/Player/Awards/DefensePrize.aspx
+2024,DEFENSE_PRIZE,KBO 수비상,66108,홍창기,LG,LG,우익수,matched_unique_name,66108,https://www.koreabaseball.com/Player/Awards/DefensePrize.aspx
+2024,DEFENSE_PRIZE,KBO 수비상,64646,박찬호,KIA,KIA,유격수,matched_unique_name,64646,https://www.koreabaseball.com/Player/Awards/DefensePrize.aspx
+2024,DEFENSE_PRIZE,KBO 수비상,53827,에레디아,SSG,SSG,좌익수,matched_unique_name,53827,https://www.koreabaseball.com/Player/Awards/DefensePrize.aspx
+2024,DEFENSE_PRIZE,KBO 수비상,79231,정수빈,두산,두산,중견수,matched_unique_name,79231,https://www.koreabaseball.com/Player/Awards/DefensePrize.aspx
+2024,DEFENSE_PRIZE,KBO 수비상,54930,하트,NC,NC,투수,matched_unique_name,54930,https://www.koreabaseball.com/Player/Awards/DefensePrize.aspx
+2024,DEFENSE_PRIZE,KBO 수비상,79365,박동원,LG,LG,포수,matched_unique_name,79365,https://www.koreabaseball.com/Player/Awards/DefensePrize.aspx
+2024,GOLDEN_GLOVE,KBO 골든글러브,53123,오스틴,LG,LG,1루수,matched_unique_name,53123,https://www.koreabaseball.com/Player/Awards/GoldenGlove.aspx
+2024,GOLDEN_GLOVE,KBO 골든글러브,67304,김혜성,키움,키움,2루수,matched_unique_name,67304,https://www.koreabaseball.com/Player/Awards/GoldenGlove.aspx
+2024,GOLDEN_GLOVE,KBO 골든글러브,52605,김도영,KIA,KIA,3루수,matched_season_team,52605|66098,https://www.koreabaseball.com/Player/Awards/GoldenGlove.aspx
+2024,GOLDEN_GLOVE,KBO 골든글러브,62404,구자욱,삼성,삼성,외야수,matched_unique_name,62404,https://www.koreabaseball.com/Player/Awards/GoldenGlove.aspx
+2024,GOLDEN_GLOVE,KBO 골든글러브,54529,레이예스,롯데,롯데,외야수,matched_unique_name,54529,https://www.koreabaseball.com/Player/Awards/GoldenGlove.aspx
+2024,GOLDEN_GLOVE,KBO 골든글러브,67025,로하스,KT,KT,외야수,matched_season_team,53211|67025,https://www.koreabaseball.com/Player/Awards/GoldenGlove.aspx
+2024,GOLDEN_GLOVE,KBO 골든글러브,64646,박찬호,KIA,KIA,유격수,matched_unique_name,64646,https://www.koreabaseball.com/Player/Awards/GoldenGlove.aspx
+2024,GOLDEN_GLOVE,KBO 골든글러브,72443,최형우,KIA,KIA,지명타자,matched_unique_name,72443,https://www.koreabaseball.com/Player/Awards/GoldenGlove.aspx
+2024,GOLDEN_GLOVE,KBO 골든글러브,54930,하트,NC,NC,투수,matched_unique_name,54930,https://www.koreabaseball.com/Player/Awards/GoldenGlove.aspx
+2024,GOLDEN_GLOVE,KBO 골든글러브,74540,강민호,삼성,삼성,포수,matched_unique_name,74540,https://www.koreabaseball.com/Player/Awards/GoldenGlove.aspx
+2024,KOREAN_SERIES_MVP,KBO 한국시리즈 MVP,78603,김선빈,KIA,KIA,내야수,matched_unique_name,78603,https://www.koreabaseball.com/Player/Awards/SeriesPrize.aspx
+2024,MVP,KBO MVP,52605,김도영,KIA,KIA,내야수,matched_season_team,52605|66098,https://www.koreabaseball.com/Player/Awards/PlayerPrize.aspx
+2024,ROOKIE,KBO 신인상,54263,김택연,두산,두산,투수,matched_unique_name,54263,https://www.koreabaseball.com/Player/Awards/PlayerPrize.aspx
+2023,ALL_STAR_MVP,KBO 올스타전 MVP,79192,채은성,한화,한화,외야수,matched_unique_name,79192,https://www.koreabaseball.com/Player/Awards/SeriesPrize.aspx
+2023,DEFENSE_PRIZE,KBO 수비상,75125,박병호,KT,KT,1루수,matched_unique_name,75125,https://www.koreabaseball.com/Player/Awards/DefensePrize.aspx
+2023,DEFENSE_PRIZE,KBO 수비상,67304,김혜성,키움,키움,2루수,matched_unique_name,67304,https://www.koreabaseball.com/Player/Awards/DefensePrize.aspx
+2023,DEFENSE_PRIZE,KBO 수비상,79240,허경민,두산,두산,3루수,matched_unique_name,79240,https://www.koreabaseball.com/Player/Awards/DefensePrize.aspx
+2023,DEFENSE_PRIZE,KBO 수비상,66108,홍창기,LG,LG,우익수,matched_unique_name,66108,https://www.koreabaseball.com/Player/Awards/DefensePrize.aspx
+2023,DEFENSE_PRIZE,KBO 수비상,64646,박찬호,KIA,KIA,유격수,matched_unique_name,64646,https://www.koreabaseball.com/Player/Awards/DefensePrize.aspx
+2023,DEFENSE_PRIZE,KBO 수비상,79109,오지환,LG,LG,유격수,matched_unique_name,79109,https://www.koreabaseball.com/Player/Awards/DefensePrize.aspx
+2023,DEFENSE_PRIZE,KBO 수비상,53827,에레디아,SSG,SSG,좌익수,matched_unique_name,53827,https://www.koreabaseball.com/Player/Awards/DefensePrize.aspx
+2023,DEFENSE_PRIZE,KBO 수비상,62415,박해민,LG,LG,중견수,matched_unique_name,62415,https://www.koreabaseball.com/Player/Awards/DefensePrize.aspx
+2023,DEFENSE_PRIZE,KBO 수비상,53913,페디,NC,NC,투수,matched_unique_name,53913,https://www.koreabaseball.com/Player/Awards/DefensePrize.aspx
+2023,DEFENSE_PRIZE,KBO 수비상,76232,양의지,두산,두산,포수,matched_unique_name,76232,https://www.koreabaseball.com/Player/Awards/DefensePrize.aspx
+2023,GOLDEN_GLOVE,KBO 골든글러브,53123,오스틴,LG,LG,1루수,matched_unique_name,53123,https://www.koreabaseball.com/Player/Awards/GoldenGlove.aspx
+2023,GOLDEN_GLOVE,KBO 골든글러브,67304,김혜성,키움,키움,2루수,matched_unique_name,67304,https://www.koreabaseball.com/Player/Awards/GoldenGlove.aspx
+2023,GOLDEN_GLOVE,KBO 골든글러브,69737,노시환,한화,한화,3루수,matched_unique_name,69737,https://www.koreabaseball.com/Player/Awards/GoldenGlove.aspx
+2023,GOLDEN_GLOVE,KBO 골든글러브,62404,구자욱,삼성,삼성,외야수,matched_unique_name,62404,https://www.koreabaseball.com/Player/Awards/GoldenGlove.aspx
+2023,GOLDEN_GLOVE,KBO 골든글러브,79215,박건우,NC,NC,외야수,matched_season_team,51645|55046|55509|79215,https://www.koreabaseball.com/Player/Awards/GoldenGlove.aspx
+2023,GOLDEN_GLOVE,KBO 골든글러브,66108,홍창기,LG,LG,외야수,matched_unique_name,66108,https://www.koreabaseball.com/Player/Awards/GoldenGlove.aspx
+2023,GOLDEN_GLOVE,KBO 골든글러브,79109,오지환,LG,LG,유격수,matched_unique_name,79109,https://www.koreabaseball.com/Player/Awards/GoldenGlove.aspx
+2023,GOLDEN_GLOVE,KBO 골든글러브,77532,손아섭,NC,NC,지명타자,matched_unique_name,77532,https://www.koreabaseball.com/Player/Awards/GoldenGlove.aspx
+2023,GOLDEN_GLOVE,KBO 골든글러브,53913,페디,NC,NC,투수,matched_unique_name,53913,https://www.koreabaseball.com/Player/Awards/GoldenGlove.aspx
+2023,GOLDEN_GLOVE,KBO 골든글러브,76232,양의지,두산,두산,포수,matched_unique_name,76232,https://www.koreabaseball.com/Player/Awards/GoldenGlove.aspx
+2023,KOREAN_SERIES_MVP,KBO 한국시리즈 MVP,79109,오지환,LG,LG,내야수,matched_unique_name,79109,https://www.koreabaseball.com/Player/Awards/SeriesPrize.aspx
+2023,MVP,KBO MVP,53913,페디,NC,NC,투수,matched_unique_name,53913,https://www.koreabaseball.com/Player/Awards/PlayerPrize.aspx
+2023,ROOKIE,KBO 신인상,52701,문동주,한화,한화,투수,matched_unique_name,52701,https://www.koreabaseball.com/Player/Awards/PlayerPrize.aspx
+2022,ALL_STAR_MVP,KBO 올스타전 MVP,68743,정은원,한화,한화,내야수,matched_unique_name,68743,https://www.koreabaseball.com/Player/Awards/SeriesPrize.aspx
+2022,GOLDEN_GLOVE,KBO 골든글러브,75125,박병호,KT,KT,1루수,matched_unique_name,75125,https://www.koreabaseball.com/Player/Awards/GoldenGlove.aspx
+2022,GOLDEN_GLOVE,KBO 골든글러브,67304,김혜성,키움,키움,2루수,matched_unique_name,67304,https://www.koreabaseball.com/Player/Awards/GoldenGlove.aspx
+2022,GOLDEN_GLOVE,KBO 골든글러브,75847,최정,SSG,SSG,3루수,matched_unique_name,75847,https://www.koreabaseball.com/Player/Awards/GoldenGlove.aspx
+2022,GOLDEN_GLOVE,KBO 골든글러브,62947,나성범,KIA,KIA,외야수,matched_unique_name,62947,https://www.koreabaseball.com/Player/Awards/GoldenGlove.aspx
+2022,GOLDEN_GLOVE,KBO 골든글러브,67341,이정후,키움,키움,외야수,matched_unique_name,67341,https://www.koreabaseball.com/Player/Awards/GoldenGlove.aspx
+2022,GOLDEN_GLOVE,KBO 골든글러브,51463,피렐라,삼성,삼성,외야수,matched_unique_name,51463,https://www.koreabaseball.com/Player/Awards/GoldenGlove.aspx
+2022,GOLDEN_GLOVE,KBO 골든글러브,79109,오지환,LG,LG,유격수,matched_unique_name,79109,https://www.koreabaseball.com/Player/Awards/GoldenGlove.aspx
+2022,GOLDEN_GLOVE,KBO 골든글러브,71564,이대호,롯데,롯데,지명타자,matched_unique_name,71564,https://www.koreabaseball.com/Player/Awards/GoldenGlove.aspx
+2022,GOLDEN_GLOVE,KBO 골든글러브,68341,안우진,키움,키움,투수,matched_unique_name,68341,https://www.koreabaseball.com/Player/Awards/GoldenGlove.aspx
+2022,GOLDEN_GLOVE,KBO 골든글러브,76232,양의지,두산,두산,포수,matched_unique_name,76232,https://www.koreabaseball.com/Player/Awards/GoldenGlove.aspx
+2022,KOREAN_SERIES_MVP,KBO 한국시리즈 MVP,71837,김강민,SSG,SSG,외야수,matched_unique_name,71837,https://www.koreabaseball.com/Player/Awards/SeriesPrize.aspx
+2022,MVP,KBO MVP,67341,이정후,키움,키움,외야수,matched_unique_name,67341,https://www.koreabaseball.com/Player/Awards/PlayerPrize.aspx
+2022,ROOKIE,KBO 신인상,68242,정철원,두산,두산,투수,matched_unique_name,68242,https://www.koreabaseball.com/Player/Awards/PlayerPrize.aspx
+2021,GOLDEN_GLOVE,KBO 골든글러브,68050,강백호,KT,KT,1루수,matched_unique_name,68050,https://www.koreabaseball.com/Player/Awards/GoldenGlove.aspx
+2021,GOLDEN_GLOVE,KBO 골든글러브,68743,정은원,한화,한화,2루수,matched_unique_name,68743,https://www.koreabaseball.com/Player/Awards/GoldenGlove.aspx
+2021,GOLDEN_GLOVE,KBO 골든글러브,75847,최정,SSG,SSG,3루수,matched_unique_name,75847,https://www.koreabaseball.com/Player/Awards/GoldenGlove.aspx
+2021,GOLDEN_GLOVE,KBO 골든글러브,62404,구자욱,삼성,삼성,외야수,matched_unique_name,62404,https://www.koreabaseball.com/Player/Awards/GoldenGlove.aspx
+2021,GOLDEN_GLOVE,KBO 골든글러브,67341,이정후,키움,키움,외야수,matched_unique_name,67341,https://www.koreabaseball.com/Player/Awards/GoldenGlove.aspx
+2021,GOLDEN_GLOVE,KBO 골든글러브,66108,홍창기,LG,LG,외야수,matched_unique_name,66108,https://www.koreabaseball.com/Player/Awards/GoldenGlove.aspx
+2021,GOLDEN_GLOVE,KBO 골든글러브,67304,김혜성,키움,키움,유격수,matched_unique_name,67304,https://www.koreabaseball.com/Player/Awards/GoldenGlove.aspx
+2021,GOLDEN_GLOVE,KBO 골든글러브,76232,양의지,NC,NC,지명타자,matched_unique_name,76232,https://www.koreabaseball.com/Player/Awards/GoldenGlove.aspx
+2021,GOLDEN_GLOVE,KBO 골든글러브,51257,미란다,두산,두산,투수,matched_unique_name,51257,https://www.koreabaseball.com/Player/Awards/GoldenGlove.aspx
+2021,GOLDEN_GLOVE,KBO 골든글러브,74540,강민호,삼성,삼성,포수,matched_unique_name,74540,https://www.koreabaseball.com/Player/Awards/GoldenGlove.aspx
+2021,KOREAN_SERIES_MVP,KBO 한국시리즈 MVP,73113,박경수,KT,KT,내야수,matched_unique_name,73113,https://www.koreabaseball.com/Player/Awards/SeriesPrize.aspx
+2021,MVP,KBO MVP,51257,미란다,두산,두산,투수,matched_unique_name,51257,https://www.koreabaseball.com/Player/Awards/PlayerPrize.aspx
+2021,ROOKIE,KBO 신인상,51648,이의리,KIA,KIA,투수,matched_unique_name,51648,https://www.koreabaseball.com/Player/Awards/PlayerPrize.aspx
+2020,ALL_STAR_MVP,KBO 올스타전 MVP,76232,양의지,NC,NC,포수,matched_unique_name,76232,https://www.koreabaseball.com/Player/Awards/SeriesPrize.aspx
+2020,GOLDEN_GLOVE,KBO 골든글러브,68050,강백호,KT,KT,1루수,matched_unique_name,68050,https://www.koreabaseball.com/Player/Awards/GoldenGlove.aspx
+2020,GOLDEN_GLOVE,KBO 골든글러브,62907,박민우,NC,NC,2루수,matched_unique_name,62907,https://www.koreabaseball.com/Player/Awards/GoldenGlove.aspx
+2020,GOLDEN_GLOVE,KBO 골든글러브,76313,황재균,KT,KT,3루수,matched_unique_name,76313,https://www.koreabaseball.com/Player/Awards/GoldenGlove.aspx
+2020,GOLDEN_GLOVE,KBO 골든글러브,76290,김현수,LG,LG,외야수,matched_season_team,69516|76290,https://www.koreabaseball.com/Player/Awards/GoldenGlove.aspx
+2020,GOLDEN_GLOVE,KBO 골든글러브,67025,로하스,KT,KT,외야수,matched_season_team,53211|67025,https://www.koreabaseball.com/Player/Awards/GoldenGlove.aspx
+2020,GOLDEN_GLOVE,KBO 골든글러브,67341,이정후,키움,키움,외야수,matched_unique_name,67341,https://www.koreabaseball.com/Player/Awards/GoldenGlove.aspx
+2020,GOLDEN_GLOVE,KBO 골든글러브,64300,김하성,키움,키움,유격수,matched_unique_name,64300,https://www.koreabaseball.com/Player/Awards/GoldenGlove.aspx
+2020,GOLDEN_GLOVE,KBO 골든글러브,72443,최형우,KIA,KIA,지명타자,matched_unique_name,72443,https://www.koreabaseball.com/Player/Awards/GoldenGlove.aspx
+2020,GOLDEN_GLOVE,KBO 골든글러브,69045,알칸타라,두산,두산,투수,matched_unique_name,69045,https://www.koreabaseball.com/Player/Awards/GoldenGlove.aspx
+2020,GOLDEN_GLOVE,KBO 골든글러브,76232,양의지,NC,NC,포수,matched_unique_name,76232,https://www.koreabaseball.com/Player/Awards/GoldenGlove.aspx
+2020,KOREAN_SERIES_MVP,KBO 한국시리즈 MVP,76232,양의지,NC,NC,포수,matched_unique_name,76232,https://www.koreabaseball.com/Player/Awards/SeriesPrize.aspx
+2020,MVP,KBO MVP,67025,로하스,KT,KT,외야수,matched_season_team,53211|67025,https://www.koreabaseball.com/Player/Awards/PlayerPrize.aspx
+2020,ROOKIE,KBO 신인상,50030,소형준,KT,KT,투수,matched_unique_name,50030,https://www.koreabaseball.com/Player/Awards/PlayerPrize.aspx
+2019,ALL_STAR_MVP,KBO 올스타전 MVP,62895,한유섬,SK,SSG,외야수,matched_unique_name,62895,https://www.koreabaseball.com/Player/Awards/SeriesPrize.aspx
+2019,GOLDEN_GLOVE,KBO 골든글러브,75125,박병호,키움,키움,1루수,matched_unique_name,75125,https://www.koreabaseball.com/Player/Awards/GoldenGlove.aspx
+2019,GOLDEN_GLOVE,KBO 골든글러브,62907,박민우,NC,NC,2루수,matched_unique_name,62907,https://www.koreabaseball.com/Player/Awards/GoldenGlove.aspx
+2019,GOLDEN_GLOVE,KBO 골든글러브,75847,최정,SK,SSG,3루수,matched_unique_name,75847,https://www.koreabaseball.com/Player/Awards/GoldenGlove.aspx
+2019,GOLDEN_GLOVE,KBO 골든글러브,67025,로하스,KT,KT,외야수,matched_season_team,53211|67025,https://www.koreabaseball.com/Player/Awards/GoldenGlove.aspx
+2019,GOLDEN_GLOVE,KBO 골든글러브,68345,샌즈,키움,키움,외야수,matched_unique_name,68345,https://www.koreabaseball.com/Player/Awards/GoldenGlove.aspx
+2019,GOLDEN_GLOVE,KBO 골든글러브,67341,이정후,키움,키움,외야수,matched_unique_name,67341,https://www.koreabaseball.com/Player/Awards/GoldenGlove.aspx
+2019,GOLDEN_GLOVE,KBO 골든글러브,64300,김하성,키움,키움,유격수,matched_unique_name,64300,https://www.koreabaseball.com/Player/Awards/GoldenGlove.aspx
+2019,GOLDEN_GLOVE,KBO 골든글러브,69209,페르난데스,두산,두산,지명타자,matched_unique_name,69209,https://www.koreabaseball.com/Player/Awards/GoldenGlove.aspx
+2019,GOLDEN_GLOVE,KBO 골든글러브,65543,린드블럼,두산,두산,투수,matched_unique_name,65543,https://www.koreabaseball.com/Player/Awards/GoldenGlove.aspx
+2019,GOLDEN_GLOVE,KBO 골든글러브,76232,양의지,NC,NC,포수,matched_unique_name,76232,https://www.koreabaseball.com/Player/Awards/GoldenGlove.aspx
+2019,KOREAN_SERIES_MVP,KBO 한국시리즈 MVP,75334,오재일,두산,두산,내야수,matched_unique_name,75334,https://www.koreabaseball.com/Player/Awards/SeriesPrize.aspx
+2019,MVP,KBO MVP,65543,린드블럼,두산,두산,투수,matched_unique_name,65543,https://www.koreabaseball.com/Player/Awards/PlayerPrize.aspx
+2019,ROOKIE,KBO 신인상,69159,정우영,LG,LG,투수,matched_unique_name,69159,https://www.koreabaseball.com/Player/Awards/PlayerPrize.aspx
+2018,ALL_STAR_MVP,KBO 올스타전 MVP,64300,김하성,넥센,키움,내야수,matched_unique_name,64300,https://www.koreabaseball.com/Player/Awards/SeriesPrize.aspx
+2018,GOLDEN_GLOVE,KBO 골든글러브,75125,박병호,넥센,키움,1루수,matched_unique_name,75125,https://www.koreabaseball.com/Player/Awards/GoldenGlove.aspx
+2018,GOLDEN_GLOVE,KBO 골든글러브,79608,안치홍,KIA,KIA,2루수,matched_unique_name,79608,https://www.koreabaseball.com/Player/Awards/GoldenGlove.aspx
+2018,GOLDEN_GLOVE,KBO 골든글러브,79240,허경민,두산,두산,3루수,matched_unique_name,79240,https://www.koreabaseball.com/Player/Awards/GoldenGlove.aspx
+2018,GOLDEN_GLOVE,KBO 골든글러브,78224,김재환,두산,두산,외야수,matched_unique_name,78224,https://www.koreabaseball.com/Player/Awards/GoldenGlove.aspx
+2018,GOLDEN_GLOVE,KBO 골든글러브,67341,이정후,넥센,키움,외야수,matched_unique_name,67341,https://www.koreabaseball.com/Player/Awards/GoldenGlove.aspx
+2018,GOLDEN_GLOVE,KBO 골든글러브,78513,전준우,롯데,롯데,외야수,matched_unique_name,78513,https://www.koreabaseball.com/Player/Awards/GoldenGlove.aspx
+2018,GOLDEN_GLOVE,KBO 골든글러브,64300,김하성,넥센,키움,유격수,matched_unique_name,64300,https://www.koreabaseball.com/Player/Awards/GoldenGlove.aspx
+2018,GOLDEN_GLOVE,KBO 골든글러브,71564,이대호,롯데,롯데,지명타자,matched_unique_name,71564,https://www.koreabaseball.com/Player/Awards/GoldenGlove.aspx
+2018,GOLDEN_GLOVE,KBO 골든글러브,65543,린드블럼,두산,두산,투수,matched_unique_name,65543,https://www.koreabaseball.com/Player/Awards/GoldenGlove.aspx
+2018,GOLDEN_GLOVE,KBO 골든글러브,76232,양의지,두산,두산,포수,matched_unique_name,76232,https://www.koreabaseball.com/Player/Awards/GoldenGlove.aspx
+2018,KOREAN_SERIES_MVP,KBO 한국시리즈 MVP,62895,한유섬,SK,SSG,외야수,matched_unique_name,62895,https://www.koreabaseball.com/Player/Awards/SeriesPrize.aspx
+2018,MVP,KBO MVP,78224,김재환,두산,두산,외야수,matched_unique_name,78224,https://www.koreabaseball.com/Player/Awards/PlayerPrize.aspx
+2018,ROOKIE,KBO 신인상,68050,강백호,KT,KT,외야수,matched_unique_name,68050,https://www.koreabaseball.com/Player/Awards/PlayerPrize.aspx
+2017,ALL_STAR_MVP,KBO 올스타전 MVP,75847,최정,SK,SSG,내야수,matched_unique_name,75847,https://www.koreabaseball.com/Player/Awards/SeriesPrize.aspx
+2017,GOLDEN_GLOVE,KBO 골든글러브,71564,이대호,롯데,롯데,1루수,matched_unique_name,71564,https://www.koreabaseball.com/Player/Awards/GoldenGlove.aspx
+2017,GOLDEN_GLOVE,KBO 골든글러브,79608,안치홍,KIA,KIA,2루수,matched_unique_name,79608,https://www.koreabaseball.com/Player/Awards/GoldenGlove.aspx
+2017,GOLDEN_GLOVE,KBO 골든글러브,75847,최정,SK,SSG,3루수,matched_unique_name,75847,https://www.koreabaseball.com/Player/Awards/GoldenGlove.aspx
+2017,GOLDEN_GLOVE,KBO 골든글러브,67650,버나디나,KIA,KIA,외야수,matched_unique_name,67650,https://www.koreabaseball.com/Player/Awards/GoldenGlove.aspx
+2017,GOLDEN_GLOVE,KBO 골든글러브,77532,손아섭,롯데,롯데,외야수,matched_unique_name,77532,https://www.koreabaseball.com/Player/Awards/GoldenGlove.aspx
+2017,GOLDEN_GLOVE,KBO 골든글러브,72443,최형우,KIA,KIA,외야수,matched_unique_name,72443,https://www.koreabaseball.com/Player/Awards/GoldenGlove.aspx
+2017,GOLDEN_GLOVE,KBO 골든글러브,78603,김선빈,KIA,KIA,유격수,matched_unique_name,78603,https://www.koreabaseball.com/Player/Awards/GoldenGlove.aspx
+2017,GOLDEN_GLOVE,KBO 골든글러브,72133,박용택,LG,LG,지명타자,matched_unique_name,72133,https://www.koreabaseball.com/Player/Awards/GoldenGlove.aspx
+2017,GOLDEN_GLOVE,KBO 골든글러브,77637,양현종,KIA,KIA,투수,matched_season_team,55370|77637,https://www.koreabaseball.com/Player/Awards/GoldenGlove.aspx
+2017,GOLDEN_GLOVE,KBO 골든글러브,74540,강민호,삼성,삼성,포수,matched_unique_name,74540,https://www.koreabaseball.com/Player/Awards/GoldenGlove.aspx
+2017,KOREAN_SERIES_MVP,KBO 한국시리즈 MVP,77637,양현종,KIA,KIA,투수,matched_season_team,55370|77637,https://www.koreabaseball.com/Player/Awards/SeriesPrize.aspx
+2017,MVP,KBO MVP,77637,양현종,KIA,KIA,투수,matched_season_team,55370|77637,https://www.koreabaseball.com/Player/Awards/PlayerPrize.aspx
+2017,ROOKIE,KBO 신인상,67341,이정후,넥센,키움,내야수,matched_unique_name,67341,https://www.koreabaseball.com/Player/Awards/PlayerPrize.aspx
+2016,ALL_STAR_MVP,KBO 올스타전 MVP,76249,민병헌,두산,두산,외야수,matched_unique_name,76249,https://www.koreabaseball.com/Player/Awards/SeriesPrize.aspx
+2016,GOLDEN_GLOVE,KBO 골든글러브,64914,테임즈,NC,NC,1루수,matched_unique_name,64914,https://www.koreabaseball.com/Player/Awards/GoldenGlove.aspx
+2016,GOLDEN_GLOVE,KBO 골든글러브,78168,서건창,넥센,키움,2루수,matched_unique_name,78168,https://www.koreabaseball.com/Player/Awards/GoldenGlove.aspx
+2016,GOLDEN_GLOVE,KBO 골든글러브,75847,최정,SK,SSG,3루수,matched_unique_name,75847,https://www.koreabaseball.com/Player/Awards/GoldenGlove.aspx
+2016,GOLDEN_GLOVE,KBO 골든글러브,78224,김재환,두산,두산,외야수,matched_unique_name,78224,https://www.koreabaseball.com/Player/Awards/GoldenGlove.aspx
+2016,GOLDEN_GLOVE,KBO 골든글러브,70410,김주찬,KIA,KIA,외야수,matched_unique_name,70410,https://www.koreabaseball.com/Player/Awards/GoldenGlove.aspx
+2016,GOLDEN_GLOVE,KBO 골든글러브,72443,최형우,KIA,KIA,외야수,matched_unique_name,72443,https://www.koreabaseball.com/Player/Awards/GoldenGlove.aspx
+2016,GOLDEN_GLOVE,KBO 골든글러브,74206,김재호,두산,두산,유격수,matched_unique_name,74206,https://www.koreabaseball.com/Player/Awards/GoldenGlove.aspx
+2016,GOLDEN_GLOVE,KBO 골든글러브,71752,김태균,한화,한화,지명타자,matched_unique_name,71752,https://www.koreabaseball.com/Player/Awards/GoldenGlove.aspx
+2016,GOLDEN_GLOVE,KBO 골든글러브,61240,니퍼트,두산,두산,투수,matched_unique_name,61240,https://www.koreabaseball.com/Player/Awards/GoldenGlove.aspx
+2016,GOLDEN_GLOVE,KBO 골든글러브,76232,양의지,두산,두산,포수,matched_unique_name,76232,https://www.koreabaseball.com/Player/Awards/GoldenGlove.aspx
+2016,KOREAN_SERIES_MVP,KBO 한국시리즈 MVP,76232,양의지,두산,두산,포수,matched_unique_name,76232,https://www.koreabaseball.com/Player/Awards/SeriesPrize.aspx
+2016,MVP,KBO MVP,61240,니퍼트,두산,두산,투수,matched_unique_name,61240,https://www.koreabaseball.com/Player/Awards/PlayerPrize.aspx
+2016,ROOKIE,KBO 신인상,62937,신재영,넥센,키움,투수,matched_unique_name,62937,https://www.koreabaseball.com/Player/Awards/PlayerPrize.aspx
+2015,ALL_STAR_MVP,KBO 올스타전 MVP,74540,강민호,롯데,롯데,포수,matched_unique_name,74540,https://www.koreabaseball.com/Player/Awards/SeriesPrize.aspx
+2015,GOLDEN_GLOVE,KBO 골든글러브,64914,테임즈,NC,NC,1루수,matched_unique_name,64914,https://www.koreabaseball.com/Player/Awards/GoldenGlove.aspx
+2015,GOLDEN_GLOVE,KBO 골든글러브,64440,나바로,삼성,삼성,2루수,matched_unique_name,64440,https://www.koreabaseball.com/Player/Awards/GoldenGlove.aspx
+2015,GOLDEN_GLOVE,KBO 골든글러브,74465,박석민,NC,NC,3루수,matched_unique_name,74465,https://www.koreabaseball.com/Player/Awards/GoldenGlove.aspx
+2015,GOLDEN_GLOVE,KBO 골든글러브,76290,김현수,두산,두산,외야수,matched_season_team,69516|76290,https://www.koreabaseball.com/Player/Awards/GoldenGlove.aspx
+2015,GOLDEN_GLOVE,KBO 골든글러브,62947,나성범,NC,NC,외야수,matched_unique_name,62947,https://www.koreabaseball.com/Player/Awards/GoldenGlove.aspx
+2015,GOLDEN_GLOVE,KBO 골든글러브,74339,유한준,KT,KT,외야수,matched_unique_name,74339,https://www.koreabaseball.com/Player/Awards/GoldenGlove.aspx
+2015,GOLDEN_GLOVE,KBO 골든글러브,74206,김재호,두산,두산,유격수,matched_unique_name,74206,https://www.koreabaseball.com/Player/Awards/GoldenGlove.aspx
+2015,GOLDEN_GLOVE,KBO 골든글러브,95436,이승엽,삼성,삼성,지명타자,matched_unique_name,95436,https://www.koreabaseball.com/Player/Awards/GoldenGlove.aspx
+2015,GOLDEN_GLOVE,KBO 골든글러브,63938,해커,NC,NC,투수,matched_unique_name,63938,https://www.koreabaseball.com/Player/Awards/GoldenGlove.aspx
+2015,GOLDEN_GLOVE,KBO 골든글러브,76232,양의지,두산,두산,포수,matched_unique_name,76232,https://www.koreabaseball.com/Player/Awards/GoldenGlove.aspx
+2015,KOREAN_SERIES_MVP,KBO 한국시리즈 MVP,79231,정수빈,두산,두산,외야수,matched_unique_name,79231,https://www.koreabaseball.com/Player/Awards/SeriesPrize.aspx
+2015,MVP,KBO MVP,64914,테임즈,NC,NC,내야수,matched_unique_name,64914,https://www.koreabaseball.com/Player/Awards/PlayerPrize.aspx
+2015,ROOKIE,KBO 신인상,62404,구자욱,삼성,삼성,내야수,matched_unique_name,62404,https://www.koreabaseball.com/Player/Awards/PlayerPrize.aspx
