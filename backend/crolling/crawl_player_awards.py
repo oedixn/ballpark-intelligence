@@ -379,19 +379,38 @@ def read_csv(path: Path) -> list[dict[str, str]]:
 
 def load_player_indexes(
     data_root: Path | None,
-) -> tuple[dict[str, set[str]], dict[tuple[str, int], set[str]], list[Path]]:
+) -> tuple[
+    dict[str, set[str]],
+    dict[tuple[str, int], set[str]],
+    dict[str, set[str]],
+    dict[str, set[int]],
+    list[Path],
+]:
     name_to_ids: dict[str, set[str]] = defaultdict(set)
     career_teams: dict[tuple[str, int], set[str]] = defaultdict(set)
+    all_career_teams: dict[str, set[str]] = defaultdict(set)
+    career_years: dict[str, set[int]] = defaultdict(set)
     used_files: list[Path] = []
 
     if data_root is None:
-        return name_to_ids, career_teams, used_files
+        return (
+            name_to_ids,
+            career_teams,
+            all_career_teams,
+            career_years,
+            used_files,
+        )
 
     player_files = sorted(
         set(data_root.rglob("players.csv"))
         | set(data_root.rglob("player_profiles.csv"))
     )
-    season_team_files = sorted(data_root.rglob("player_season_teams.csv"))
+    # 정규 시즌 소속 데이터와 프로필용으로 만든 클럽 경력 데이터를 모두
+    # 사용합니다. 어느 한 파일이 빠져도 동명이인 판별이 가능해집니다.
+    season_team_files = sorted(
+        set(data_root.rglob("player_season_teams.csv"))
+        | set(data_root.rglob("player_club_history.csv"))
+    )
 
     for path in player_files:
         rows = read_csv(path)
@@ -415,15 +434,26 @@ def load_player_indexes(
             year_text = clean_text(row.get("season_year"))
             if not player_id or not team_name or not year_text.isdigit():
                 continue
-            career_teams[(player_id, int(year_text))].add(team_name)
+            season_year = int(year_text)
+            career_teams[(player_id, season_year)].add(team_name)
+            all_career_teams[player_id].add(team_name)
+            career_years[player_id].add(season_year)
 
-    return name_to_ids, career_teams, used_files
+    return (
+        name_to_ids,
+        career_teams,
+        all_career_teams,
+        career_years,
+        used_files,
+    )
 
 
 def match_player_ids(
     awards: list[Award],
     name_to_ids: dict[str, set[str]],
     career_teams: dict[tuple[str, int], set[str]],
+    all_career_teams: dict[str, set[str]],
+    career_years: dict[str, set[int]],
 ) -> None:
     for award in awards:
         award.normalized_team_name = normalize_team_name(award.team_name)
@@ -432,6 +462,13 @@ def match_player_ids(
 
         if not name_candidates:
             award.match_status = "unmatched_no_player"
+            continue
+
+        # 이름으로 찾은 선수가 한 명뿐이면 이적 때문에 KBO 수상 페이지의
+        # 현재 구단과 수상 시즌 구단이 달라도 안전하게 연결할 수 있습니다.
+        if len(name_candidates) == 1:
+            award.player_id = name_candidates[0]
+            award.match_status = "matched_unique_name"
             continue
 
         matched = [
@@ -443,14 +480,55 @@ def match_player_ids(
 
         if len(matched) == 1:
             award.player_id = matched[0]
-            award.match_status = "matched"
+            award.match_status = "matched_season_team"
         elif len(matched) > 1:
             award.candidate_ids = "|".join(sorted(matched))
             award.match_status = "ambiguous"
         else:
-            # 이름만 같고 해당 연도·구단 경력이 없으면 연결하지 않습니다.
-            # 과거 선수와 현재 동명이인의 잘못된 연결을 방지합니다.
-            award.match_status = "unmatched_no_season_team"
+            # KBO 페이지의 구단이 이적 후 구단으로 표시된 경우를 대비해
+            # 같은 시즌에 실제로 활동한 동명이인이 한 명인지 먼저 확인합니다.
+            same_season = [
+                player_id
+                for player_id in name_candidates
+                if award.season_year in career_years.get(player_id, set())
+            ]
+            if len(same_season) == 1:
+                award.player_id = same_season[0]
+                award.candidate_ids = same_season[0]
+                award.match_status = "matched_season"
+                continue
+
+            # 수상 페이지에 적힌 구단이 선수의 전체 경력 중 하나라면 이를
+            # 보조 조건으로 사용합니다.
+            same_career_team = [
+                player_id
+                for player_id in name_candidates
+                if award.normalized_team_name
+                in all_career_teams.get(player_id, set())
+            ]
+            if len(same_career_team) == 1:
+                award.player_id = same_career_team[0]
+                award.candidate_ids = same_career_team[0]
+                award.match_status = "matched_career_team"
+                continue
+
+            # 마지막으로 보유 경력의 시작~종료 연도 안에 수상 시즌이 들어가는
+            # 후보가 한 명뿐일 때만 연결합니다. 둘 이상이면 잘못 연결하지 않습니다.
+            active_candidates = []
+            for player_id in name_candidates:
+                years = career_years.get(player_id, set())
+                if years and min(years) <= award.season_year <= max(years):
+                    active_candidates.append(player_id)
+            if len(active_candidates) == 1:
+                award.player_id = active_candidates[0]
+                award.candidate_ids = active_candidates[0]
+                award.match_status = "matched_career_span"
+                continue
+
+            unresolved = same_season or same_career_team or active_candidates
+            if unresolved:
+                award.candidate_ids = "|".join(sorted(unresolved))
+            award.match_status = "ambiguous"
 
 
 def write_awards(path: Path, awards: list[Award]) -> None:
@@ -485,8 +563,20 @@ def main() -> int:
     if args.minimum_year is not None:
         awards = [award for award in awards if award.season_year >= args.minimum_year]
 
-    name_to_ids, career_teams, used_files = load_player_indexes(data_root)
-    match_player_ids(awards, name_to_ids, career_teams)
+    (
+        name_to_ids,
+        career_teams,
+        all_career_teams,
+        career_years,
+        used_files,
+    ) = load_player_indexes(data_root)
+    match_player_ids(
+        awards,
+        name_to_ids,
+        career_teams,
+        all_career_teams,
+        career_years,
+    )
 
     if args.output:
         output = args.output.resolve()
