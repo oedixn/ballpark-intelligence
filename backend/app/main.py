@@ -535,19 +535,8 @@ def delete_record(record_id:int,current_user=Depends(get_current_user)):
 @with_connection_cleanup
 def get_team_rank(season:Optional[int]=None):
     if season and season!=SEASON:
-        try:
-            c=get_conn(); cr=get_cur(c)
-            cr.execute("""
-                SELECT t.team_name, SUM(ps.w)+SUM(ps.l) AS games, SUM(ps.w) AS wins, SUM(ps.l) AS losses, 0 AS draws,
-                       ROUND(SUM(ps.w)::numeric/NULLIF(SUM(ps.w)+SUM(ps.l),0),3) AS win_rate,
-                       ROW_NUMBER() OVER(ORDER BY SUM(ps.w)::numeric/NULLIF(SUM(ps.w)+SUM(ps.l),0) DESC) AS rank
-                FROM player_pitcher_stats ps JOIN teams t ON t.team_id=ps.team_id
-                WHERE ps.season_year=%s GROUP BY t.team_name
-                HAVING SUM(ps.w)+SUM(ps.l)>=80
-                ORDER BY win_rate DESC""",(season,))
-            r=cr.fetchall(); cr.close(); c.close()
-            return {"teams":rows(r),"source":"db","season":season}
-        except Exception: raise_internal_error()
+        # 과거 시즌 팀 순위는 정확한 데이터가 없어 제공하지 않는다(선수 기록 합산은 중복·누락으로 부정확).
+        return {"teams":[],"source":"unavailable","season":season}
     try:
         data=urllib.parse.urlencode({"leId":"1","srId":"0","seasonId":"2026"}).encode()
         req=urllib.request.Request("https://www.koreabaseball.com/ws/Main.asmx/GetTeamRank",data=data,

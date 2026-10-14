@@ -97,7 +97,7 @@ export default function StatsPage() {
 
   const rankCell = (i: number) => <span className={i < 3 ? 'text-orange-400 font-bold' : 'text-gray-500'}>{i + 1}</span>;
   const th = 'px-4 py-3 text-center font-medium whitespace-nowrap';
-  const empty = <p className="text-gray-500 py-16 text-center">{season}시즌 기록이 없습니다.</p>;
+  const empty = <p className="text-gray-500 py-16 text-center">{tab === 'team' ? `${season}시즌 팀 순위는 준비 중입니다.` : `${season}시즌 기록이 없습니다.`}</p>;
 
   const sortBar = (opts: string[][], cur: string, set: (v: string) => void) => (
     <div className="flex gap-2 mb-5 flex-wrap">
