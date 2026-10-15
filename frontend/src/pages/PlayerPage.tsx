@@ -508,20 +508,19 @@ export default function PlayerPage() {
       </div>
 
       <div className="px-10 py-8">
-        <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,384px)_minmax(0,320px)_minmax(320px,1fr)] gap-6 mb-6 items-start">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
           <div className="bg-gray-800 rounded-xl p-6 w-full">
             <p className="text-gray-400 text-xs mb-4">
               주요 지표 {season && <span className="ml-2 text-orange-400">{season} 시즌</span>}
             </p>
             {player.stats.map((s) => <PercentileBar key={s.label} label={s.label} value={s.value} percentile={s.percentile} unit={s.unit} />)}
           </div>
-          <div className="bg-gray-800 rounded-xl p-6 w-full">
-            <p className="text-gray-400 text-xs mb-2 text-center">능력치 레이더</p>
+          <div className="bg-gray-800 rounded-xl p-4 w-full flex flex-col">
+            <p className="text-gray-400 text-xs mb-2 text-center shrink-0">능력치 레이더</p>
             <PlayerRadarChart data={player.radar} />
           </div>
 
-          <div className="space-y-6 min-w-0">
-            <section className="bg-gray-800 rounded-xl p-6 border border-gray-700/70">
+          <section className="bg-gray-800 rounded-xl p-6 border border-gray-700/70 min-w-0">
               <div className="flex items-center justify-between mb-4">
                 <p className="text-gray-200 text-sm font-semibold">수상 경력</p>
                 <span className="text-orange-400 text-xs font-bold">{raw?.awards?.length ?? 0}회</span>
@@ -546,7 +545,7 @@ export default function PlayerPage() {
               )}
             </section>
 
-            <section className="bg-gray-800 rounded-xl p-6 border border-gray-700/70">
+            <section className="bg-gray-800 rounded-xl p-6 border border-gray-700/70 min-w-0">
               <p className="text-gray-200 text-sm font-semibold mb-4">KBO 소속 이력 <span className="text-gray-600 normal-case tracking-normal font-normal">(2015~)</span></p>
               {raw?.club_career?.length ? (
                 <div className="space-y-0">
@@ -575,14 +574,14 @@ export default function PlayerPage() {
               )}
               <p className="text-gray-600 text-[11px] mt-4 border-t border-gray-700 pt-3">보유한 2015–2026 시즌 데이터 기준</p>
             </section>
-          </div>
         </div>
 
-        <div className="max-w-xl"><InsightBox name={player.name} stats={player.stats} /></div>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-stretch">
+        <div className="min-w-0 [&>*]:h-full"><InsightBox name={player.name} stats={player.stats} /></div>
 
         {/* 머니볼 */}
         {mb && (
-          <div className="bg-gradient-to-br from-gray-800 to-gray-900 border border-orange-500/20 rounded-xl p-6 mt-6 max-w-xl">
+          <div className="bg-gradient-to-br from-gray-800 to-gray-900 border border-orange-500/20 rounded-xl p-6 min-w-0">
             <p className="text-orange-400 text-sm font-semibold mb-4">머니볼 엔진 분석</p>
             <div className="grid grid-cols-3 gap-3 mb-5">
               <div className="bg-gray-900 rounded-lg p-3 text-center"><p className="text-gray-500 text-xs mb-1">선수 유형</p><p className="text-white text-sm font-black">{mb.cluster_type}</p></div>
@@ -626,10 +625,12 @@ export default function PlayerPage() {
             )}
           </div>
         )}
+        </div>
 
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-stretch mt-6">
         {/* 유사 선수 */}
         {similar.length > 0 && (
-          <div className="bg-gray-800 rounded-xl p-6 mt-6 max-w-xl">
+          <div className="bg-gray-800 rounded-xl p-6 min-w-0">
             <p className="text-gray-300 text-sm font-semibold mb-4">유사 선수 추천</p>
             <div className="space-y-3">
               {similar.map((p, i) => (
@@ -662,19 +663,19 @@ export default function PlayerPage() {
 
         {/* LSTM 성과 예측 */}
 {(
-  <div className="mt-6 max-w-xl">
+  <div className="min-w-0 flex flex-col">
     {!predRequested ? (
       <button onClick={requestPrediction}
         className="w-full bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-500 hover:to-blue-600 text-white rounded-xl py-4 px-6 text-sm font-bold transition-all flex items-center justify-center gap-2">
         {raw ? `${Number((raw as any).season_year ?? 2026)+1}` : '내년'} 시즌 성과 예측 (LSTM AI)
       </button>
     ) : predLoading ? (
-      <div className="bg-gray-800 rounded-xl p-6 text-center">
+      <div className="bg-gray-800 rounded-xl p-6 text-center flex-1 flex flex-col justify-center">
         <p className="text-blue-400 text-sm animate-pulse">LSTM 모델로 예측 중... (최대 30초)</p>
         <p className="text-gray-600 text-xs mt-2">9시즌 데이터를 학습하고 있어요</p>
       </div>
     ) : prediction ? (
-      <div className="bg-gradient-to-br from-gray-800 to-gray-900 border border-blue-500/20 rounded-xl p-6">
+      <div className="bg-gradient-to-br from-gray-800 to-gray-900 border border-blue-500/20 rounded-xl p-6 flex-1">
         <div className="flex items-center justify-between mb-4">
           <p className="text-blue-400 text-sm font-semibold">AI 성과 예측</p>
           <span className={`text-xs px-2 py-0.5 rounded font-bold ${prediction.confidence==='high'?'bg-green-500/20 text-green-400':prediction.confidence==='medium'?'bg-yellow-500/20 text-yellow-400':'bg-gray-500/20 text-gray-400'}`}>
@@ -715,13 +716,15 @@ export default function PlayerPage() {
         </div>
       </div>
     ) : (
-      <div className="bg-gray-800 rounded-xl p-4 text-center">
+      <div className="bg-gray-800 rounded-xl p-4 text-center flex-1 flex flex-col justify-center">
         <p className="text-gray-500 text-xs">예측 데이터를 불러오지 못했습니다</p>
         <button onClick={() => setPredReq(false)} className="text-blue-400 text-xs mt-2 hover:underline">다시 시도</button>
       </div>
     )}
   </div>
 )}
+        </div>
+
         {/* 연도별 차트 */}
         {seasons && seasons.seasons.length >= 2 && (
           <div className="bg-gray-800 rounded-xl p-6 mt-6 max-w-3xl">
