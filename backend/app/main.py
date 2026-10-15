@@ -572,8 +572,9 @@ def get_hitters(sort:Optional[str]="woba",limit:int=50,season:Optional[int]=None
         c=get_conn(); cr=get_cur(c)
         sc_map={"woba":"woba","ops":"pst.ops","hr":"pst.hr","avg":"pst.avg","rbi":"pst.rbi"}
         s=sc_map.get(sort,"woba")
-        cr.execute("SELECT MAX(pa) AS m FROM player_hitter_stats WHERE season_year=%s",(target_season,))
-        min_pa=max(int((cr.fetchone()['m'] or 0)*0.7),50)
+        cr.execute("SELECT pa FROM player_hitter_stats WHERE season_year=%s AND pa IS NOT NULL ORDER BY pa DESC OFFSET 19 LIMIT 1",(target_season,))
+        ref=cr.fetchone()
+        min_pa=max(int(((ref['pa'] if ref else 0) or 0)*0.7),50)
         cr.execute(f"""SELECT p.player_id,p.player_name,t.team_name,pst.avg,pst.pa,pst.hr,pst.rbi,pst.obp,pst.slg,pst.ops,
             ROUND(CAST(pst.bb AS NUMERIC)/NULLIF(pst.pa,0)*100,1) AS bb_rate,
             ROUND(CAST(pst.so AS NUMERIC)/NULLIF(pst.pa,0)*100,1) AS k_rate,
@@ -594,8 +595,9 @@ def get_pitchers(sort:Optional[str]="era",limit:int=50,season:Optional[int]=None
     target_season = season or SEASON
     try:
         c=get_conn(); cr=get_cur(c)
-        cr.execute("SELECT MAX(CAST(REGEXP_REPLACE(ip,'[^0-9].*','') AS NUMERIC)) AS m FROM player_pitcher_stats WHERE season_year=%s AND ip IS NOT NULL",(target_season,))
-        min_ip=max(float(cr.fetchone()['m'] or 0)*0.7,10)
+        cr.execute("SELECT CAST(REGEXP_REPLACE(ip,'[^0-9].*','') AS NUMERIC) AS ipn FROM player_pitcher_stats WHERE season_year=%s AND ip IS NOT NULL ORDER BY ipn DESC OFFSET 19 LIMIT 1",(target_season,))
+        ref=cr.fetchone()
+        min_ip=max(float((ref['ipn'] if ref else 0) or 0)*0.7,10)
         sc_map={"era":"ps.era","w":"ps.w","sv":"ps.sv","hld":"ps.hld","so":"ps.so","whip":"ps.whip"}
         s=sc_map.get(sort,"ps.era")
         IPN="(CAST(REGEXP_REPLACE(ps.ip,'[^0-9].*','') AS NUMERIC)+CASE WHEN ps.ip LIKE '%%2/3%%' THEN 0.667 WHEN ps.ip LIKE '%%1/3%%' THEN 0.333 ELSE 0 END)"
@@ -603,7 +605,7 @@ def get_pitchers(sort:Optional[str]="era",limit:int=50,season:Optional[int]=None
         if sort in ("era","whip") or sort not in sc_map: where.append(f"{IPN}>=%s"); params.append(min_ip)
         if sort=="sv": where.append("ps.sv>0")
         if sort=="hld": where.append("ps.hld>0")
-        if starter: where.append("ps.gs>=3")
+        if starter: where.append("(CASE WHEN ps.gs IS NOT NULL THEN ps.gs>=3 ELSE (ps.g>0 AND " + IPN + "/ps.g>=3) END)")
         order=f"{s} {'ASC' if sort in ('era','whip') or sort not in sc_map else 'DESC'} NULLS LAST"
         if sort in ("sv","hld","w","so"): order+=", ps.era ASC NULLS LAST"
         cr.execute(f"""SELECT p.player_id,p.player_name,t.team_name,ps.era,ps.g,ps.gs,ps.w,ps.l,ps.sv,ps.hld,ps.ip,ps.so,ps.bb,ps.hr,ps.whip,ps.wpct,{IPN} AS ip_numeric

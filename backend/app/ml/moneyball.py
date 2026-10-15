@@ -50,7 +50,12 @@ def get_hitter_features(season: int = LATEST_SEASON):
     rows = cur.fetchall()
     cur.close()
     conn.close()
-    return [dict(r) for r in rows]
+    data = [dict(r) for r in rows]
+    # 규정 타석 기준: 시즌 최다 타석의 20% (최소 30타석). 표본이 적은 선수는 군집·백분위에서 제외한다.
+    if data:
+        threshold = max(30, int(max(float(r['pa'] or 0) for r in data) * 0.2))
+        data = [r for r in data if float(r['pa'] or 0) >= threshold]
+    return data
 
 def train_kmeans(data: list, n_clusters: int = 5):
     """K-Means 학습"""
@@ -71,22 +76,25 @@ def train_kmeans(data: list, n_clusters: int = 5):
     kmeans  = KMeans(n_clusters=n_clusters, random_state=42, n_init=10)
     labels  = kmeans.fit_predict(scaled)
 
-    # 클러스터별 평균 wOBA 계산해서 유형 매핑
-    cluster_woba = {}
-    for i, label in enumerate(labels):
-        if label not in cluster_woba:
-            cluster_woba[label] = []
-        cluster_woba[label].append(float(data[i]['woba'] or 0))
-
-    cluster_avg_woba = {k: np.mean(v) for k, v in cluster_woba.items()}
-
-    # wOBA 기준으로 클러스터 유형 자동 매핑
-    sorted_clusters = sorted(cluster_avg_woba.items(), key=lambda x: x[1], reverse=True)
-
+    # 군집 중심(원 단위 평균)의 실제 특성으로 유형 이름을 부여한다.
+    # 우선순위: 종합 최상위(wOBA) -> 파워(ISO) -> 출루(BB%) -> 컨택(낮은 K%) -> 나머지
+    centers = {int(c): features[labels == c].mean(axis=0) for c in np.unique(labels)}
+    remaining = set(centers)
     type_map = {}
-    type_names = ["균형형", "파워형", "출루형", "컨택형", "스피드형"]
-    for rank, (cluster_id, _) in enumerate(sorted_clusters):
-        type_map[cluster_id] = type_names[rank] if rank < len(type_names) else "기타"
+    rules = [
+        ("균형형", lambda m: m[0]),   # wOBA
+        ("파워형", lambda m: m[1]),   # ISO
+        ("출루형", lambda m: m[2]),   # BB%
+        ("컨택형", lambda m: -m[3]),  # 낮은 K%
+    ]
+    for name, score in rules:
+        if not remaining:
+            break
+        best = max(remaining, key=lambda c: score(centers[c]))
+        type_map[best] = name
+        remaining.discard(best)
+    for c in remaining:
+        type_map[c] = "보완형"
 
     return kmeans, scaler, labels, type_map, features
 
@@ -142,7 +150,7 @@ def get_player_moneyball(player_id: int, season: int = LATEST_SEASON):
         "파워형":   "장타력과 홈런이 뛰어난 클린업 타입",
         "출루형":   "볼넷을 많이 얻어 출루율이 높은 선구안 타입",
         "컨택형":   "높은 타율과 낮은 삼진으로 안정적인 타입",
-        "스피드형": "발이 빠르고 컨택이 좋은 리드오프 타입",
+        "보완형":   "타율·출루·장타 지표가 전반적으로 낮아 보완이 필요한 타입",
     }
 
     # 리그 내 같은 클러스터 선수들
