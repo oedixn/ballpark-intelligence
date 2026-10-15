@@ -433,8 +433,12 @@ def get_team_pitchers(team_name:str):
             FROM player_pitcher_stats ps
             JOIN players p ON ps.player_id = p.player_id
             JOIN teams t ON ps.team_id = t.team_id
-            WHERE t.team_name = %s AND ps.season_year = %s AND ps.gs >= 3
-            ORDER BY ps.gs DESC LIMIT 15
+            WHERE t.team_name = %s AND ps.season_year = %s
+              AND (CASE WHEN ps.gs IS NOT NULL THEN ps.gs >= 3
+                        ELSE (ps.g > 0 AND ps.ip IS NOT NULL AND
+                              (CAST(REGEXP_REPLACE(ps.ip,'[^0-9].*','') AS NUMERIC)
+                               + CASE WHEN ps.ip LIKE '%%2/3%%' THEN 0.667 WHEN ps.ip LIKE '%%1/3%%' THEN 0.333 ELSE 0 END) / ps.g >= 3) END)
+            ORDER BY COALESCE(ps.gs, ps.g) DESC LIMIT 15
         """, (team_name, SEASON))
         r=cr.fetchall(); cr.close(); c.close()
         return {"pitchers": rows(r)}
