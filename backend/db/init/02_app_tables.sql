@@ -72,3 +72,11 @@ CREATE INDEX IF NOT EXISTS idx_game_records_team_played_at
 
 CREATE INDEX IF NOT EXISTS idx_game_records_user_played_at
     ON public.game_records (user_id, played_at DESC);
+
+-- 과거 시즌 팀 순위를 KBO 연도별 페이지의 순서 그대로 제공하기 위해
+-- CSV의 rank_no를 저장한다. 기존 Docker 볼륨에도 멱등 적용된다.
+ALTER TABLE public.team_rank_stats
+    ADD COLUMN IF NOT EXISTS rank_no integer;
+
+CREATE INDEX IF NOT EXISTS idx_team_rank_stats_season_rank
+    ON public.team_rank_stats (season_year, rank_no);
