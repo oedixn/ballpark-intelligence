@@ -538,11 +538,49 @@ def delete_record(record_id:int,current_user=Depends(get_current_user)):
 @app.get("/api/stats/team-rank")
 @with_connection_cleanup
 def get_team_rank(season:Optional[int]=None):
-    if season and season!=SEASON:
-        # 과거 시즌 팀 순위는 정확한 데이터가 없어 제공하지 않는다(선수 기록 합산은 중복·누락으로 부정확).
-        return {"teams":[],"source":"unavailable","season":season}
+    target_season=season or SEASON
+    if target_season<2015 or target_season>SEASON:
+        raise HTTPException(400,f"지원하는 시즌은 2015~{SEASON}년입니다.")
+
+    def get_db_rank():
+        c=None; cr=None
+        try:
+            c=get_conn(); cr=get_cur(c)
+            cr.execute("""
+                SELECT t.team_name,r.games,r.wins,r.losses,r.draws,r.win_rate,
+                       r.game_gap,r.last10,r.streak,r.home,r.away,
+                       COALESCE(
+                           r.rank_no,
+                           ROW_NUMBER() OVER(
+                               ORDER BY r.win_rate DESC NULLS LAST,
+                                        r.wins DESC NULLS LAST,
+                                        r.losses ASC NULLS LAST,
+                                        t.team_name
+                           )
+                       ) AS rank
+                FROM team_rank_stats r
+                JOIN teams t ON r.team_id=t.team_id
+                WHERE r.season_year=%s
+                ORDER BY r.rank_no ASC NULLS LAST,
+                         r.win_rate DESC NULLS LAST,
+                         r.wins DESC NULLS LAST,
+                         t.team_name
+            """,(target_season,))
+            return rows(cr.fetchall())
+        finally:
+            if cr: cr.close()
+            if c: c.close()
+
+    # GetTeamRank는 seasonId를 바꿔도 현재 시즌을 반환하므로 과거 시즌에는
+    # 재수집해 둔 PostgreSQL 데이터만 사용한다.
+    if target_season!=SEASON:
+        try:
+            return {"teams":get_db_rank(),"source":"db","season":target_season}
+        except Exception:
+            raise_internal_error()
+
     try:
-        data=urllib.parse.urlencode({"leId":"1","srId":"0","seasonId":"2026"}).encode()
+        data=urllib.parse.urlencode({"leId":"1","srId":"0","seasonId":str(SEASON)}).encode()
         req=urllib.request.Request("https://www.koreabaseball.com/ws/Main.asmx/GetTeamRank",data=data,
             headers={"Content-Type":"application/x-www-form-urlencoded","User-Agent":"Mozilla/5.0","Referer":"https://www.koreabaseball.com/"})
         with urllib.request.urlopen(req,timeout=10) as res: raw=J.loads(res.read().decode("utf-8"))
@@ -562,10 +600,7 @@ def get_team_rank(season:Optional[int]=None):
         raise Exception()
     except Exception:
         try:
-            c=get_conn(); cr=get_cur(c)
-            cr.execute("SELECT t.team_name,r.games,r.wins,r.losses,r.draws,r.win_rate,r.last10,r.streak,ROW_NUMBER() OVER(ORDER BY r.win_rate DESC) AS rank FROM team_rank_stats r JOIN teams t ON r.team_id=t.team_id WHERE r.season_year=%s ORDER BY r.win_rate DESC",(SEASON,))
-            r=cr.fetchall(); cr.close(); c.close()
-            return {"teams":rows(r),"source":"db"}
+            return {"teams":get_db_rank(),"source":"db","season":target_season}
         except Exception: raise_internal_error()
 
 @app.get("/api/stats/hitters")
