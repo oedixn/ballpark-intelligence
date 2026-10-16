@@ -43,6 +43,7 @@ CSV_DIR = Path(__file__).parent / "output_db_ready"
 APP_SCHEMA_PATH = Path(__file__).parent / "init" / "02_app_tables.sql"
 PROFILE_SCHEMA_PATH = Path(__file__).parent / "init" / "03_player_profiles.sql"
 AWARDS_SCHEMA_PATH = Path(__file__).parent / "init" / "04_player_awards.sql"
+AWARDS_LINK_PATH = Path(__file__).parent / "post" / "link_awards.sql"
 
 # CSV 파일명이 (1) 붙은 업로드본인 경우에도 자동으로 찾기 위한 후보 목록
 CSV_ALIASES = {
@@ -495,6 +496,24 @@ def load_table(conn, canonical_csv: str, table_name: str) -> None:
     print(f"[OK] {path.name} -> {table_name}: {count} rows")
 
 
+def link_unmatched_awards(conn) -> int:
+    """모든 CSV 적재 후 이름이 유일한 미연결 수상의 player_id를 보강한다."""
+    if not AWARDS_LINK_PATH.exists():
+        raise FileNotFoundError(f"수상 보강 SQL 파일이 없습니다: {AWARDS_LINK_PATH}")
+
+    try:
+        with conn.cursor() as cur:
+            cur.execute(AWARDS_LINK_PATH.read_text(encoding="utf-8"))
+            updated_count = max(cur.rowcount, 0)
+        conn.commit()
+        print(f"[POST] link_awards.sql -> player_awards: {updated_count} rows updated")
+        return updated_count
+    except Exception:
+        conn.rollback()
+        print("[ERROR] link_awards.sql 실행 실패")
+        raise
+
+
 # ============================================================
 # 3. 실행
 # ============================================================
@@ -518,6 +537,11 @@ def main() -> None:
 
         for csv_name, table_name in LOAD_PLAN:
             load_table(conn, csv_name, table_name)
+
+        # players와 player_awards를 포함한 모든 CSV가 적재된 뒤 실행한다.
+        # player_id가 NULL이고 players에서 이름이 유일한 수상만 보강하므로
+        # 재실행해도 이미 연결된 행은 변경하지 않는다.
+        link_unmatched_awards(conn)
 
         print("====================================")
         print("전체 적재 완료")
