@@ -661,6 +661,7 @@ CREATE TABLE public.team_rank_stats (
     id integer NOT NULL,
     season_year integer NOT NULL,
     team_id integer NOT NULL,
+    rank_no integer,
     games integer,
     wins integer,
     losses integer,
