@@ -20,5 +20,6 @@ frontend/dist/
 # Backend
 backend/__pycache__/
 backend/.env
+backend/models/
 backend/game_simulator/simulator_main_backup.py
 frontend/public/players/

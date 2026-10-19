@@ -801,25 +801,13 @@ def get_similar(player_id:int):
     except HTTPException: raise
     except Exception: raise_internal_error()
 
-_h_model=_h_sx=_h_sy=_p_model=_p_sx=_p_sy=None
-
 @app.get("/api/players/{player_id}/predict")
 @with_connection_cleanup
 def get_prediction(player_id:int):
-    global _h_model,_h_sx,_h_sy,_p_model,_p_sx,_p_sy
     try:
-        from app.ml.lstm_predictor import predict_next_season,predict_pitcher_next_season,train_hitter_model,train_pitcher_model
-        result=None
-        try:
-            if _h_model is None: _h_model,_h_sx,_h_sy=train_hitter_model()
-            result=predict_next_season(player_id,_h_model,_h_sx,_h_sy)
-        except: pass
-        if not result:
-            try:
-                if _p_model is None: _p_model,_p_sx,_p_sy=train_pitcher_model()
-                result=predict_pitcher_next_season(player_id,_p_model,_p_sx,_p_sy)
-            except: pass
-        if not result: raise HTTPException(404,"예측 데이터 부족")
+        from app.ml.lstm_predictor import predict_saved_next_season
+        result=predict_saved_next_season(player_id)
+        if not result: raise HTTPException(404,"예측에는 최근 연속 3시즌의 유효한 기록이 필요합니다.")
         return result
     except HTTPException: raise
     except Exception: raise_internal_error()

@@ -667,12 +667,11 @@ export default function PlayerPage() {
     {!predRequested ? (
       <button onClick={requestPrediction}
         className="w-full bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-500 hover:to-blue-600 text-white rounded-xl py-4 px-6 text-sm font-bold transition-all flex items-center justify-center gap-2">
-        {raw ? `${Number((raw as any).season_year ?? 2026)+1}` : '내년'} 시즌 성과 예측 (LSTM AI)
+        {raw ? `${Number((raw as any).season_year ?? 2026)+1}` : '내년'} 시즌 성과 예측
       </button>
     ) : predLoading ? (
       <div className="bg-gray-800 rounded-xl p-6 text-center flex-1 flex flex-col justify-center">
-        <p className="text-blue-400 text-sm animate-pulse">LSTM 모델로 예측 중... (최대 30초)</p>
-        <p className="text-gray-600 text-xs mt-2">9시즌 데이터를 학습하고 있어요</p>
+        <p className="text-blue-400 text-sm animate-pulse">성적 예측 중...</p>
       </div>
     ) : prediction ? (
       <div className="bg-gradient-to-br from-gray-800 to-gray-900 border border-blue-500/20 rounded-xl p-6 flex-1">
@@ -685,11 +684,18 @@ export default function PlayerPage() {
         <p className="text-gray-500 text-xs mb-4">
           {prediction.seasons_used}시즌 데이터 기반 · {prediction.method==='lstm'?'LSTM 딥러닝':'가중 평균'} 예측
         </p>
+        {prediction.method === 'weighted_average' && (
+          <p className="text-gray-400 text-xs mb-4">
+            {prediction.model_status === 'load_failed'
+              ? '저장된 LSTM 모델을 불러오지 못해 가중 평균으로 예측했습니다.'
+              : '적용된 LSTM 모델이 없어 가중 평균으로 예측했습니다.'}
+          </p>
+        )}
         <div className="grid grid-cols-3 gap-3 mb-4">
   {(prediction.type === 'pitcher' ? [
     { label:'ERA',  cur:prediction.recent_stats.era,      pred:prediction.predictions.era,      lower:true  },
     { label:'WHIP', cur:prediction.recent_stats.whip,     pred:prediction.predictions.whip,     lower:true  },
-    { label:'K/G',  cur:prediction.recent_stats.so_per_g, pred:prediction.predictions.so_per_g, lower:false },
+    { label:'K/9',  cur:prediction.recent_stats.k9, pred:prediction.predictions.k9, lower:false },
   ] : [
     { label:'AVG',  cur:prediction.recent_stats.avg,  pred:prediction.predictions.avg,  lower:false },
     { label:'OPS',  cur:prediction.recent_stats.ops,  pred:prediction.predictions.ops,  lower:false },
@@ -710,6 +716,41 @@ export default function PlayerPage() {
     );
   })}
 </div>
+        {prediction.method === 'lstm' && prediction.evaluation?.units === 'original' && (
+          <div className="mb-4">
+            <p className="text-gray-400 text-xs mb-2">
+              모델 {prediction.evaluation.dataset === 'test' ? '독립 테스트' : '검증'} 오차 · {prediction.evaluation.dataset === 'test' ? prediction.evaluation.test_season : prediction.evaluation.validation_season}시즌 · {prediction.evaluation.dataset === 'test' ? prediction.evaluation.test_samples : prediction.evaluation.validation_samples}개 기록
+            </p>
+            <table className="w-full text-xs text-right">
+              <caption className="text-left text-gray-500 mb-2">
+                각 지표의 원래 단위 · 낮을수록 좋음 · 모델 전체 평가이며 개별 선수의 오차범위가 아닙니다.
+              </caption>
+              <thead className="text-gray-400">
+                <tr>
+                  <th scope="col" className="text-left py-1">지표</th>
+                  <th scope="col" className="py-1">MAE</th>
+                  <th scope="col" className="py-1">RMSE</th>
+                </tr>
+              </thead>
+              <tbody className="text-gray-300 tabular-nums">
+                {(prediction.type === 'pitcher'
+                  ? [{ key: 'era', label: 'ERA' }, { key: 'whip', label: 'WHIP' }, { key: 'k9', label: 'K/9' }]
+                  : [{ key: 'avg', label: 'AVG' }, { key: 'ops', label: 'OPS' }, { key: 'woba', label: 'wOBA' }]
+                ).map(({ key, label }) => {
+                  const scores = prediction.evaluation.metrics?.[key];
+                  if (!scores) return null;
+                  return (
+                    <tr key={key}>
+                      <th scope="row" className="text-left py-1 font-normal">{label}</th>
+                      <td className="py-1">{Number(scores.mae).toFixed(3)}</td>
+                      <td className="py-1">{Number(scores.rmse).toFixed(3)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
         <div className="flex items-center justify-between text-xs text-gray-600">
           <span>{prediction.current_season} 현재 시즌</span>
           <span className="text-blue-400 font-bold">→ {prediction.next_season} 예측</span>
@@ -717,7 +758,7 @@ export default function PlayerPage() {
       </div>
     ) : (
       <div className="bg-gray-800 rounded-xl p-4 text-center flex-1 flex flex-col justify-center">
-        <p className="text-gray-500 text-xs">예측 데이터를 불러오지 못했습니다</p>
+        <p className="text-gray-500 text-xs">예측 데이터를 불러오지 못했습니다. 예측에는 최근 연속 3시즌의 유효한 기록이 필요합니다.</p>
         <button onClick={() => setPredReq(false)} className="text-blue-400 text-xs mt-2 hover:underline">다시 시도</button>
       </div>
     )}

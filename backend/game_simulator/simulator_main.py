@@ -32,6 +32,7 @@ from dataclasses import dataclass
 from itertools import permutations
 from pathlib import Path
 from typing import Dict, List, Sequence, Tuple
+import argparse
 import csv
 import math
 import random
@@ -951,6 +952,7 @@ class MatchSimulator:
         lineup: List[PlayerProb],
         start_batter_idx: int,
         walkoff_target: int | None = None,
+        record_logs: bool = True,
     ) -> Tuple[HalfInningLog, int, bool]:
         outs = 0
         base_mask = 0
@@ -965,18 +967,19 @@ class MatchSimulator:
             new_base_mask, new_outs, scored = apply_event(base_mask, outs, event)
             runs += scored
 
-            plate_logs.append(
-                PlateAppearanceLog(
-                    inning=inning,
-                    half=half,
-                    batter_order=batter_idx + 1,
-                    batter_name=player.name,
-                    event=event,
-                    runs_scored=scored,
-                    outs_after=new_outs,
-                    bases_after=format_bases(new_base_mask),
+            if record_logs:
+                plate_logs.append(
+                    PlateAppearanceLog(
+                        inning=inning,
+                        half=half,
+                        batter_order=batter_idx + 1,
+                        batter_name=player.name,
+                        event=event,
+                        runs_scored=scored,
+                        outs_after=new_outs,
+                        bases_after=format_bases(new_base_mask),
+                    )
                 )
-            )
 
             base_mask = new_base_mask
             outs = new_outs
@@ -999,6 +1002,7 @@ class MatchSimulator:
         self,
         innings: int = REGULATION_INNINGS,
         max_innings: int = MAX_GAME_INNINGS,
+        record_logs: bool = True,
     ) -> GameLog:
         """
         경기 전체 시뮬레이션.
@@ -1026,9 +1030,11 @@ class MatchSimulator:
                 team_name=self.team_a_name,
                 lineup=self.team_a_lineup,
                 start_batter_idx=team_a_batter_idx,
+                record_logs=record_logs,
             )
             team_a_score += top_log.runs
-            inning_logs.append(top_log)
+            if record_logs:
+                inning_logs.append(top_log)
 
             # 정규 이닝 마지막 이후 홈팀이 이미 앞서면 말 공격 생략
             if inning >= innings and team_b_score > team_a_score:
@@ -1045,9 +1051,11 @@ class MatchSimulator:
                 lineup=self.team_b_lineup,
                 start_batter_idx=team_b_batter_idx,
                 walkoff_target=walkoff_target,
+                record_logs=record_logs,
             )
             team_b_score += bottom_log.runs
-            inning_logs.append(bottom_log)
+            if record_logs:
+                inning_logs.append(bottom_log)
 
             if is_walkoff:
                 break
@@ -1066,6 +1074,49 @@ class MatchSimulator:
             final_score=(team_a_score, team_b_score),
             innings=inning_logs,
         )
+
+    def simulate_many(
+        self,
+        n_games: int = 10000,
+        innings: int = REGULATION_INNINGS,
+        max_innings: int = MAX_GAME_INNINGS,
+    ) -> Dict[str, object]:
+        """맞대결 최종 스코어를 집계한다. 개별 경기와 타석 로그는 보관하지 않는다."""
+        if n_games < 1:
+            raise ValueError("시뮬레이션 횟수는 1 이상이어야 합니다.")
+        if not 1 <= innings <= max_innings:
+            raise ValueError("정규 이닝은 1 이상 최대 이닝 이하여야 합니다.")
+
+        score_counts: Dict[Tuple[int, int], int] = {}
+        for _ in range(n_games):
+            score = self.simulate_game(
+                innings=innings, max_innings=max_innings, record_logs=False,
+            ).final_score
+            score_counts[score] = score_counts.get(score, 0) + 1
+
+        def team_stats(team_index: int) -> Dict[str, object]:
+            mean = sum(score[team_index] * count for score, count in score_counts.items()) / n_games
+            return {
+                "mean_runs": mean,
+                "variance": sum(
+                    (score[team_index] - mean) ** 2 * count
+                    for score, count in score_counts.items()
+                ) / n_games,
+                "prob_0_runs": sum(count for score, count in score_counts.items() if score[team_index] == 0) / n_games,
+                "prob_5_or_more_runs": sum(count for score, count in score_counts.items() if score[team_index] >= 5) / n_games,
+                "wins": sum(count for score, count in score_counts.items() if score[team_index] > score[1 - team_index]),
+            }
+
+        return {
+            "team_a": team_stats(0),
+            "team_b": team_stats(1),
+            "draws": sum(count for (a, b), count in score_counts.items() if a == b),
+            "score_distribution": [
+                {"team_a_score": a, "team_b_score": b, "count": count}
+                for (a, b), count in sorted(score_counts.items(), key=lambda item: (-item[1], item[0]))
+            ],
+            "n_games": n_games,
+        }
 
 
 # -----------------------------------------------------------------------------
@@ -1163,7 +1214,16 @@ def run_monte_carlo_report(
 # main
 # -----------------------------------------------------------------------------
 
-def main() -> None:
+def main(argv: Sequence[str] | None = None) -> None:
+    parser = argparse.ArgumentParser(description="야구 경기 시뮬레이션 및 스코어별 그래프 저장")
+    parser.add_argument("--games", type=int, default=10000, help="맞대결 반복 횟수 (기본: 10000)")
+    parser.add_argument("--seed", type=int, default=42, help="반복 시뮬레이션 난수 시드 (기본: 42)")
+    parser.add_argument("--output-dir", type=Path, default=Path(__file__).parent / "results", help="PNG 저장 폴더")
+    parser.add_argument("--no-show", action="store_true", help="창 표시 없이 PNG만 저장")
+    parser.add_argument("--plot-order", choices=("both", "frequency", "score"), default="both", help="표시할 그래프")
+    args = parser.parse_args(argv)
+    if args.games < 1:
+        parser.error("--games는 1 이상이어야 합니다.")
     print("=" * 70)
     print("[DB 경로 확인]")
     print(f"타자 기록 CSV: {HITTER_STATS_CSV_PATH}")
@@ -1271,6 +1331,28 @@ def main() -> None:
         f"{team_b_name} - Markov 기대 득점: {team_b_expected:.4f} "
         f"/ Monte Carlo 평균 득점: {team_b_mc_result['mean_runs']:.4f}"
     )
+
+    print(f"\n[자료용 맞대결 {args.games:,}경기 스코어 집계]")
+    results = MatchSimulator(
+        team_a_name, team_a, team_b_name, team_b, seed=args.seed,
+    ).simulate_many(n_games=args.games)
+    if __package__:
+        from .score_plots import plot_match_scores, show_frequency_table
+    else:
+        from score_plots import plot_match_scores, show_frequency_table
+    print("그래프를 별도 PNG로 저장합니다. 각 창을 닫으면 다음 그래프와 빈도순 표가 열립니다.")
+    paths = plot_match_scores(
+        results, team_a_name, team_b_name, output_dir=args.output_dir,
+        show=not args.no_show, order=args.plot_order,
+        context=f"{season_year}시즌 · 선발 {team_a_starting_pitcher.name} / {team_b_starting_pitcher.name} · seed={args.seed}",
+    )
+    for path in paths:
+        print(f"그래프 저장: {path}")
+    table_paths = show_frequency_table(
+        results, team_a_name, team_b_name, output_dir=args.output_dir, show=not args.no_show,
+    )
+    for path in table_paths:
+        print(f"빈도순 표 저장: {path}")
 
 
 if __name__ == "__main__":
