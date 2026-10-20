@@ -467,7 +467,7 @@ export default function SimulatorPage() {
             <div style={{ display: 'flex', gap: '16px' }}>
               <button onClick={handleReset} className="retro-btn" style={{ background: '#1a1a1a', color: '#9ca3af', fontSize: '12px', padding: '14px 28px', border: '2px solid #374151', boxShadow: '4px 4px 0 #000' }}>↺ RESET</button>
               <button onClick={handleMultiStats} disabled={loading} className="retro-btn"
-                style={{ background: '#0c1a3a', color: '#60a5fa', fontSize: '12px', padding: '14px 28px', border: '2px solid #3b82f6', boxShadow: '4px 4px 0 #1e3a5f', opacity: loading ? 0.5 : 1 }}>▣ 1000 GAMES STAT</button>
+                style={{ background: '#0c1a3a', color: '#60a5fa', fontSize: '12px', padding: '14px 28px', border: '2px solid #3b82f6', boxShadow: '4px 4px 0 #1e3a5f', opacity: loading ? 0.5 : 1 }}>▣ 10000 GAMES STAT</button>
             </div>
           </>
         )}
