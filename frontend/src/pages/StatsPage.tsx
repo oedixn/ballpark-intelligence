@@ -148,6 +148,7 @@ export default function StatsPage() {
         <div>
           <h1 className="text-white text-3xl font-bold">기록실</h1>
           <p className="text-gray-400 mt-1">{season} KBO 시즌 팀 · 선수 기록{!isCurrent && ' (지난 시즌)'}</p>
+          {!isCurrent && tab === 'team' && <p className="text-gray-500 text-sm mt-1">지난 시즌 순위는 포스트시즌 결과를 반영한 KBO 공식 최종 순위입니다.</p>}
         </div>
                 <div className="flex items-center gap-2">
           <button onClick={() => setSeason(s => Math.max(2015, s - 1))} disabled={season <= 2015} aria-label="이전 시즌"
