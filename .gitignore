@@ -23,3 +23,5 @@ backend/.env
 backend/models/
 backend/game_simulator/simulator_main_backup.py
 frontend/public/players/
+backend/game_simulator/fonts/
+backend/game_simulator/results/
