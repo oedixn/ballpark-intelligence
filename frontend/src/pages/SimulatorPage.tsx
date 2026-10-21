@@ -242,7 +242,7 @@ export default function SimulatorPage() {
   async function handleMultiStats() {
     setLoading(true);
     try {
-      const res = await simulateMulti({ team_a_name: teamAName, team_a_lineup: teamALineup, team_b_name: teamBName, team_b_lineup: teamBLineup, n_games: 1000, ...pitcherParams() });
+      const res = await simulateMulti({ team_a_name: teamAName, team_a_lineup: teamALineup, team_b_name: teamBName, team_b_lineup: teamBLineup, n_games: 10000, ...pitcherParams() });
       setMultiStats(res); setShowStats(true);
     } catch { setError('통계 계산 중 오류가 발생했습니다.'); }
     finally { setLoading(false); }
