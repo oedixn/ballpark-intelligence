@@ -104,7 +104,7 @@ HITTER_Q = f"""
     FROM players p
     JOIN player_hitter_stats pst ON p.player_id = pst.player_id
     JOIN teams t ON pst.team_id = t.team_id
-    LEFT JOIN player_defense_stats def ON p.player_id = def.player_id AND pst.season_year = def.season_year
+    LEFT JOIN LATERAL (SELECT d.* FROM player_defense_stats d WHERE d.player_id = p.player_id AND d.season_year = pst.season_year AND d.team_id = pst.team_id ORDER BY CASE WHEN d.ip ~ '^[0-9]' THEN CAST(REGEXP_REPLACE(d.ip,'[^0-9].*','') AS NUMERIC) ELSE 0 END DESC, d.g DESC NULLS LAST, d.position LIMIT 1) def ON TRUE
 """
 
 PITCHER_Q = """
@@ -411,7 +411,7 @@ def get_team_batters(team_name:str):
             SELECT p.player_id, p.player_name AS name, pst.pa, pst.ab, pst.h AS hits,
                    pst.double_hit AS double, pst.triple_hit AS triple, pst.hr, pst.bb, pst.hbp,
                    COALESCE((SELECT d.position FROM player_defense_stats d
-                             WHERE d.player_id=p.player_id AND d.season_year=pst.season_year LIMIT 1),
+                             WHERE d.player_id=p.player_id AND d.season_year=pst.season_year AND d.team_id=pst.team_id ORDER BY CASE WHEN d.ip ~ '^[0-9]' THEN CAST(REGEXP_REPLACE(d.ip,'[^0-9].*','') AS NUMERIC) ELSE 0 END DESC, d.g DESC NULLS LAST, d.position LIMIT 1),
                             p.profile_position) AS position
             FROM players p
             JOIN player_hitter_stats pst ON p.player_id=pst.player_id
@@ -622,7 +622,7 @@ def get_hitters(sort:Optional[str]="woba",limit:int=50,season:Optional[int]=None
             def.position
             FROM players p JOIN player_hitter_stats pst ON p.player_id=pst.player_id
             JOIN teams t ON pst.team_id=t.team_id
-            LEFT JOIN player_defense_stats def ON p.player_id=def.player_id AND pst.season_year=def.season_year
+            LEFT JOIN LATERAL (SELECT d.* FROM player_defense_stats d WHERE d.player_id = p.player_id AND d.season_year = pst.season_year AND d.team_id = pst.team_id ORDER BY CASE WHEN d.ip ~ '^[0-9]' THEN CAST(REGEXP_REPLACE(d.ip,'[^0-9].*','') AS NUMERIC) ELSE 0 END DESC, d.g DESC NULLS LAST, d.position LIMIT 1) def ON TRUE
             WHERE pst.season_year=%s AND pst.pa>=%s ORDER BY {s} DESC NULLS LAST LIMIT %s""",(target_season,min_pa,limit))
         r=cr.fetchall(); cr.close(); c.close()
         return {"hitters":rows(r),"min_pa":min_pa}
