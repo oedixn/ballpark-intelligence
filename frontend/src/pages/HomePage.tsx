@@ -20,7 +20,7 @@ const toDbTeamName = (name: string) => KBO_TEAM_MAP[name] ?? name;
 
 const features = [
   { title: '선수 프로필', desc: '리그 백분위, 능력치 레이더, 유사 선수, 다음 시즌 예측까지 한 화면에서 확인합니다.', path: '/player' },
-  { title: '경기 시뮬레이터', desc: '마르코프 체인으로 경기를 타석 단위로 재현하고 1,000경기 통계를 냅니다.', path: '/simulator' },
+  { title: '경기 시뮬레이터', desc: '마르코프 체인으로 경기를 타석 단위로 재현하고 10,000경기 통계를 냅니다.', path: '/simulator' },
   { title: '타순 배치', desc: '드래그로 타순을 구성하고 득점 기대값 변화를 확인합니다.', path: '/lineup' },
 ];
 
