@@ -73,7 +73,7 @@ def train_kmeans(data: list, n_clusters: int = 5):
 
     scaler  = StandardScaler()
     scaled  = scaler.fit_transform(features)
-    kmeans  = KMeans(n_clusters=n_clusters, random_state=42, n_init=10)
+    kmeans  = KMeans(n_clusters=n_clusters, random_state=42, n_init=200)
     labels  = kmeans.fit_predict(scaled)
 
     # 군집 중심(원 단위 평균)의 실제 특성으로 유형 이름을 부여한다.
