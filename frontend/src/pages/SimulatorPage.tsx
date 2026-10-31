@@ -6,10 +6,11 @@ import FieldAnimation from '../components/simulator/FieldAnimation';
 import Fireworks from '../components/simulator/Fireworks';
 import PitchZone from '../components/simulator/PitchZone';
 import TeamSetup from '../components/simulator/TeamSetup';
-import { simulateGame, simulateMulti, fetchTeamPitchers } from '../api/simulatorApi';
+import type { Batter } from '../components/simulator/TeamSetup';
+import { simulateGame, simulateMulti, fetchTeamPitchers, fetchHistoricalTeam, simulatorErrorMessage } from '../api/simulatorApi';
 import { saveRecord } from '../api/recordApi';
 import { fetchTeamLineup } from '../api/playerApi';
-import type { GameLog, InningLog, PlateAppearance, MultiSimulateResponse, PitcherInfo } from '../api/simulatorApi';
+import type { GameLog, InningLog, PlateAppearance, MultiSimulateResponse, PitcherInfo, SimulationMetadata } from '../api/simulatorApi';
 import { useAuth } from '../context/AuthContext';
 import { getTeamLogo } from '../utils/teamLogo';
 import { buildSequence } from '../utils/pitchSequence';
@@ -96,6 +97,11 @@ export default function SimulatorPage() {
   const [teamALineup, setTeamALineup] = useState(fromMyTeam?.lineup ?? DEFAULT_LINEUP_A);
   const [teamBLineup, setTeamBLineup] = useState(DEFAULT_LINEUP_B);
   const [lineupLoading, setLineupLoading] = useState(false);
+  const [asOf, setAsOf] = useState('');
+  const [bullpenEnabled, setBullpenEnabled] = useState(false);
+  const [historicalMetadata, setHistoricalMetadata] = useState<SimulationMetadata | null>(null);
+  const [historicalBattersA, setHistoricalBattersA] = useState<Batter[]>([]);
+  const [historicalBattersB, setHistoricalBattersB] = useState<Batter[]>([]);
   const [pitchersA, setPitchersA] = useState<PitcherInfo[]>([]);
   const [pitchersB, setPitchersB] = useState<PitcherInfo[]>([]);
   const [pitcherAId, setPitcherAId] = useState('');
@@ -125,42 +131,62 @@ export default function SimulatorPage() {
   const bannerTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const shakeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const logScrollRef = useRef<HTMLDivElement>(null);
+  const loadedContextRef = useRef<{date:string; a:string; b:string; myTeam:typeof fromMyTeam} | null>(null);
 
   // 나만의 팀에서 넘어온 투수진 (AWAY가 그 팀일 때만 사용)
-  const staffA = fromMyTeam && teamAName === fromMyTeam.teamName ? fromMyTeam.pitchers : undefined;
+  const staffA = !asOf && fromMyTeam && teamAName === fromMyTeam.teamName ? fromMyTeam.pitchers : undefined;
 
   useEffect(() => {
-    if (!urlTeamA && !urlTeamB) return;
     if (urlTeamA) setTeamAName(urlTeamA);
     if (urlTeamB) setTeamBName(urlTeamB);
-    setLineupLoading(true);
-    const promises: Promise<void>[] = [];
-    if (urlTeamA && !fromMyTeam) promises.push(fetchTeamLineup(urlTeamA).then(setTeamALineup).catch(() => setTeamALineup(DEFAULT_LINEUP_A)));
-    if (urlTeamB) promises.push(fetchTeamLineup(urlTeamB).then(setTeamBLineup).catch(() => setTeamBLineup(DEFAULT_LINEUP_B)));
-    Promise.all(promises).finally(() => setLineupLoading(false));
   }, [urlTeamA, urlTeamB]);
 
   useEffect(() => {
-    if (urlTeamA || urlTeamB) return;
-    fetchTeamLineup(fromMyTeam?.opponent ?? '롯데').then(setTeamBLineup).catch(() => setTeamBLineup(DEFAULT_LINEUP_B));
-  }, []);
-
-  useEffect(() => {
-    setPitcherAId(''); setPitcherBId('');
-    fetchTeamPitchers(teamAName).then(setPitchersA).catch(() => setPitchersA([]));
-    fetchTeamPitchers(teamBName).then(setPitchersB).catch(() => setPitchersB([]));
-  }, [teamAName, teamBName]);
+    let alive = true;
+    const previous = loadedContextRef.current;
+    const reloadA = !previous || previous.date !== asOf || previous.a !== teamAName || previous.myTeam !== fromMyTeam;
+    const reloadB = !previous || previous.date !== asOf || previous.b !== teamBName;
+    if (timerRef.current) clearTimeout(timerRef.current);
+    if (bannerTimer.current) clearTimeout(bannerTimer.current);
+    setGameLog(null); setMultiStats(null); setShowStats(false); setDisplayed([]);
+    setCurrentPA(null); setPitchView(null); setBanner(null); setDone(false);
+    setLineupLoading(true); setError(null); setHistoricalMetadata(null);
+    if (reloadA) { setHistoricalBattersA([]); setPitcherAId(''); setPitchersA([]); }
+    if (reloadB) { setHistoricalBattersB([]); setPitcherBId(''); setPitchersB([]); }
+    async function load() {
+      try {
+        if (asOf) {
+          const [a, b] = await Promise.all([fetchHistoricalTeam(teamAName, asOf), fetchHistoricalTeam(teamBName, asOf)]);
+          if (!alive) return;
+          if (reloadA) { setTeamALineup(a.lineup); setHistoricalBattersA(a.batters); setPitchersA(a.pitchers); setPitcherAId(a.pitchers[0]?.player_id ?? ''); }
+          if (reloadB) { setTeamBLineup(b.lineup); setHistoricalBattersB(b.batters); setPitchersB(b.pitchers); setPitcherBId(b.pitchers[0]?.player_id ?? ''); }
+          setHistoricalMetadata(a.metadata);
+        } else {
+          const [a, b, pa, pb] = await Promise.all([
+            fromMyTeam && teamAName === fromMyTeam.teamName ? Promise.resolve(fromMyTeam.lineup) : fetchTeamLineup(teamAName),
+            fetchTeamLineup(teamBName), fetchTeamPitchers(teamAName), fetchTeamPitchers(teamBName),
+          ]);
+          if (!alive) return;
+          if (reloadA) { setTeamALineup(a); setPitchersA(pa); }
+          if (reloadB) { setTeamBLineup(b); setPitchersB(pb); }
+        }
+        loadedContextRef.current = {date:asOf,a:teamAName,b:teamBName,myTeam:fromMyTeam};
+      } catch (err) {
+        if (alive) { loadedContextRef.current = null; setTeamALineup([]); setTeamBLineup([]); setError(simulatorErrorMessage(err)); }
+      } finally {
+        if (alive) setLineupLoading(false);
+      }
+    }
+    void load();
+    return () => { alive = false; };
+  }, [asOf, teamAName, teamBName, fromMyTeam]);
 
   useEffect(() => {
     if (logScrollRef.current) logScrollRef.current.scrollTop = logScrollRef.current.scrollHeight;
   }, [displayed]);
 
-  async function changeTeam(side: 'A' | 'B', name: string) {
+  function changeTeam(side: 'A' | 'B', name: string) {
     if (side === 'A') setTeamAName(name); else setTeamBName(name);
-    try {
-      const lineup = await fetchTeamLineup(name);
-      if (side === 'A') setTeamALineup(lineup); else setTeamBLineup(lineup);
-    } catch { /* 기존 타순 유지 */ }
   }
 
   function reveal(ev: FlatEvent) {
@@ -217,6 +243,8 @@ export default function SimulatorPage() {
   const pitcherParams = () => {
     const a = pitchersA.find(p => p.player_id === pitcherAId), b = pitchersB.find(p => p.player_id === pitcherBId);
     return {
+      ...(asOf ? { as_of: asOf, seed: 42 } : {}),
+      bullpen_enabled: bullpenEnabled,
       pitcher_a: staffA ? (customStarter || undefined) : a?.player_name,
       pitcher_b: b?.player_name,
       pitcher_a_id: staffA ? undefined : a?.player_id,
@@ -235,7 +263,7 @@ export default function SimulatorPage() {
         try { await saveRecord({ team_name: teamAName, opponent_name: teamBName, result: sa > sb ? '승' : sa < sb ? '패' : '무', my_score: sa, opp_score: sb }); }
         catch { console.warn('경기 결과는 생성됐지만 전적 저장에 실패했습니다.'); }
       }
-    } catch { setError('시뮬레이션 중 오류가 발생했습니다.'); }
+    } catch (err) { setError(simulatorErrorMessage(err)); }
     finally { setLoading(false); }
   }
 
@@ -244,7 +272,7 @@ export default function SimulatorPage() {
     try {
       const res = await simulateMulti({ team_a_name: teamAName, team_a_lineup: teamALineup, team_b_name: teamBName, team_b_lineup: teamBLineup, n_games: 10000, ...pitcherParams() });
       setMultiStats(res); setShowStats(true);
-    } catch { setError('통계 계산 중 오류가 발생했습니다.'); }
+    } catch (err) { setError(simulatorErrorMessage(err)); }
     finally { setLoading(false); }
   }
 
@@ -280,7 +308,7 @@ export default function SimulatorPage() {
   const lbl = { color: '#9ca3af', fontSize: '11px', letterSpacing: '1px' } as const;
   const outs = currentPA ? (currentPA.outs_after >= 3 ? 0 : currentPA.outs_after) : 0;
   const batterName = pitchView?.pa.batter_name ?? currentPA?.batter_name;
-  const ready = teamALineup.length === 9 && teamBLineup.length === 9;
+  const ready = teamALineup.length === 9 && teamBLineup.length === 9 && !lineupLoading && (!asOf || historicalMetadata?.as_of === asOf);
 
   return (
     <div className={hrShake ? 'shake' : ''} style={{ minHeight: '100vh', background: '#0a0a0a', fontFamily: PX }}>
@@ -336,17 +364,40 @@ export default function SimulatorPage() {
           </div>
         </div>
 
+        {!gameLog && <div style={{ marginTop: '18px', color: '#d1d5db', fontSize: '12px' }}>
+          <label style={{ display: 'block', marginBottom: '14px', cursor: loading ? 'default' : 'pointer' }}>
+            <input type="checkbox" checked={bullpenEnabled} disabled={loading}
+              onChange={e => { setBullpenEnabled(e.target.checked); setMultiStats(null); setShowStats(false); }}
+              style={{ marginRight: '10px', accentColor: '#f97316' }} />
+            중계·마무리 투수 자동 교체
+          </label>
+          <p style={{ marginBottom: '14px', color: '#9ca3af' }}>
+            {bullpenEnabled ? '팀 기록에서 불펜을 구성하고 경기 상황에 따라 교체합니다. 현재는 기본 운용 규칙을 사용합니다.' : '선택한 선발투수의 확률을 경기 끝까지 사용합니다.'}
+          </p>
+          <label htmlFor="simulation-as-of">기준일 (당일 경기 제외) </label>
+          <input id="simulation-as-of" type="date" value={asOf} min="2015-01-02"
+            disabled={loading} onChange={e => setAsOf(e.target.value)}
+            style={{ marginLeft: '12px', background: '#111', color: '#fff', border: '1px solid #6b7280', padding: '8px', colorScheme: 'dark' }} />
+          {asOf && <button onClick={() => setAsOf('')} style={{ marginLeft: '12px', color: '#9ca3af' }}>기준일 해제</button>}
+          <p style={{ marginTop: '8px', color: '#9ca3af' }}>
+            {asOf ? `${asOf} 이전 정규시즌 기록만 사용합니다. 타순을 바꿔도 선수 기록은 같은 기준일로 계산됩니다.` : '기준일을 선택하면 해당 시즌 1월 1일부터 기준일 전날까지의 기록을 사용합니다.'}
+          </p>
+          {historicalMetadata && <p style={{ marginTop: '8px', color: '#60a5fa' }}>
+            {historicalMetadata.season}년 · 마지막 반영 경기 {historicalMetadata.last_game_date} · 선발은 기준일 이전 선발 등판이 가장 많은 선수로 기본 선택
+          </p>}
+        </div>}
+
         {lineupLoading && <p style={{ color: '#6b7280', fontSize: '11px', marginTop: '12px', animation: 'blink 1s infinite' }}>LOADING LINEUP...</p>}
 
         {!gameLog && (
           <div style={{ marginTop: '20px', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(420px, 1fr))', gap: '20px' }}>
             <TeamSetup side="AWAY" teamName={teamAName} teams={KBO_TEAMS} excludeTeam={teamBName}
               onTeamChange={(n) => changeTeam('A', n)} pitchers={pitchersA} pitcherId={pitcherAId} onPitcherChange={setPitcherAId}
-              lineup={teamALineup} onLineupChange={setTeamALineup}
+              lineup={teamALineup} onLineupChange={setTeamALineup} availableBatters={asOf ? historicalBattersA : undefined}
               staff={staffA} staffStarter={customStarter} onStaffStarterChange={setCustomStarter} />
             <TeamSetup side="HOME" teamName={teamBName} teams={KBO_TEAMS} excludeTeam={teamAName}
               onTeamChange={(n) => changeTeam('B', n)} pitchers={pitchersB} pitcherId={pitcherBId} onPitcherChange={setPitcherBId}
-              lineup={teamBLineup} onLineupChange={setTeamBLineup} />
+              lineup={teamBLineup} onLineupChange={setTeamBLineup} availableBatters={asOf ? historicalBattersB : undefined} />
           </div>
         )}
       </div>
@@ -370,7 +421,9 @@ export default function SimulatorPage() {
 
         {gameLog && scoreboard && (
           <>
+            {historicalMetadata && <p style={{ color: '#60a5fa', fontSize: '12px' }}>{historicalMetadata.season}년 · 기준일 {historicalMetadata.as_of} (당일 제외) · 마지막 반영 경기 {historicalMetadata.last_game_date} · seed 42</p>}
             <Scoreboard away={scoreboard.away} home={scoreboard.home} />
+            {gameLog.bullpen_enabled && <p style={{ color: '#fdba74', fontSize: '12px' }}>중계·마무리 자동 교체 켬 · 기본 운용 규칙</p>}
 
             {(currentPA || pitchView) && (
               <div className="retro-box" style={{ padding: '20px 24px', display: 'flex', alignItems: 'flex-start', gap: '32px', flexWrap: 'wrap' }}>
@@ -399,6 +452,9 @@ export default function SimulatorPage() {
                   <p style={{ color: '#e5e7eb', fontSize: '13px' }}>{currentPA?.bases_after || '없음'}</p>
                 </div>
                 <div style={{ marginLeft: 'auto' }}>
+                  {(pitchView?.pa.pitcher_name ?? currentPA?.pitcher_name) && <p style={{ color: '#60a5fa', fontSize: '12px', marginBottom: '12px' }}>
+                    투수 {pitchView?.pa.pitcher_name ?? currentPA?.pitcher_name}
+                  </p>}
                   <p style={{ ...lbl, marginBottom: '8px' }}>AT BAT</p>
                   <p style={{ color: '#f97316', fontSize: '15px', textShadow: '1px 1px 0 #7c2d12' }}>{batterName}</p>
                 </div>
@@ -455,6 +511,9 @@ export default function SimulatorPage() {
                   return (
                     <div key={`ev-${i}`} className="pa-row" style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '8px 0', borderBottom: '1px solid #151515' }}>
                       <span style={{ color: '#d1d5db', width: '96px', flexShrink: 0, fontSize: '12px' }}>{pa.batter_name}</span>
+                      {pa.pitcher_name && <span title={pa.pitching_change_reason ?? undefined} style={{ color: pa.pitching_change_reason ? '#fdba74' : '#60a5fa', fontSize: '11px' }}>
+                        {pa.pitching_change_reason ? '교체 → ' : '투수 '}{pa.pitcher_name}
+                      </span>}
                       <span style={{ fontSize: '11px', fontFamily: PX, padding: '4px 10px', flexShrink: 0, background: badge.background, color: badge.color }}>{eventToKorean[pa.event] ?? pa.event}</span>
                       <span style={{ color: '#9ca3af', fontSize: '11px', flex: 1 }}>{pa.outs_after}아웃 · {pa.bases_after}</span>
                       {pa.runs_scored > 0 && <span className="run-badge" style={{ color: '#f97316', fontSize: '12px', fontWeight: 700, marginLeft: 'auto', textShadow: '1px 1px 0 #7c2d12' }}>+{pa.runs_scored}★</span>}

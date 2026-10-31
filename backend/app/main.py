@@ -1,7 +1,7 @@
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response, JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import List, Optional
 from decimal import Decimal
 from datetime import date, datetime
@@ -12,9 +12,12 @@ from game_simulator.simulator_main import (
     BattingRecord, record_to_player_prob,
     MatchSimulator, LineupMonteCarloSimulator, LineupMarkovModel,
     PitcherProb, adjust_lineup_by_pitcher, LeagueAverageProb,
+    _pitcher_row_to_prob,
 )
+from game_simulator.bullpen import build_pitching_staff
 from app.db import get_connection, with_connection_cleanup
 from app.auth import create_access_token, get_current_user, hash_password, verify_password
+from game_simulator.historical import HistoricalInputs, HistoryUnavailable, historical_match, simulate_historical
 
 logger = logging.getLogger(__name__)
 
@@ -192,6 +195,7 @@ def _get_league_avg() -> Optional[LeagueAverageProb]:
 
 class PlayerRecord(BaseModel):
     name:str; ab:int; hits:int; double:int; triple:int; hr:int; bb:int; hbp:int=0
+    player_id:Optional[str]=None
 
 class SimReq(BaseModel):
     team_a_name:str; team_a_lineup:List[PlayerRecord]
@@ -201,15 +205,22 @@ class SimReq(BaseModel):
     pitcher_b:Optional[str]=None
     pitcher_a_id:Optional[str]=None
     pitcher_b_id:Optional[str]=None
+    as_of:Optional[date]=None
+    seed:Optional[int]=Field(default=None,ge=0,le=4294967295)
+    bullpen_enabled:bool=False
 
 class MultiReq(BaseModel):
     team_a_name:str; team_a_lineup:List[PlayerRecord]
     team_b_name:str; team_b_lineup:List[PlayerRecord]
-    n_games:int=1000; innings:int=9
+    n_games:int=Field(default=1000,ge=1,le=10000)
+    innings:int=Field(default=9,ge=1,le=12)
     pitcher_a:Optional[str]=None
     pitcher_b:Optional[str]=None
     pitcher_a_id:Optional[str]=None
     pitcher_b_id:Optional[str]=None
+    as_of:Optional[date]=None
+    seed:Optional[int]=Field(default=None,ge=0,le=4294967295)
+    bullpen_enabled:bool=False
 
 class RecordCreate(BaseModel):
     team_name:str; opponent_name:str; result:str; my_score:int; opp_score:int
@@ -444,12 +455,103 @@ def get_team_pitchers(team_name:str):
         return {"pitchers": rows(r)}
     except Exception: raise_internal_error()
 
+def historical_inputs(as_of:date):
+    try:
+        return HistoricalInputs(as_of)
+    except HistoryUnavailable as exc:
+        raise HTTPException(409,str(exc)) from exc
+    except (ValueError,KeyError) as exc:
+        logger.exception("날짜별 경기 기록 검증 실패")
+        raise HTTPException(409,"날짜별 경기 기록을 확인할 수 없습니다. 데이터를 다시 수집하세요.") from exc
+
+
+@app.get("/api/simulate/history/{team_name}")
+def get_historical_team(team_name:str,as_of:date):
+    try:
+        return historical_inputs(as_of).team(team_name)
+    except HistoryUnavailable as exc:
+        raise HTTPException(409,str(exc)) from exc
+
+
+def annual_bullpen_match(req):
+    """Read annual staff only for undated requests; old routes stay untouched."""
+    if not 1 <= req.innings <= 12:
+        raise ValueError("정규 이닝은 1~12여야 합니다.")
+    a = [record_to_player_prob(BattingRecord(**p.model_dump(exclude={"player_id"}))) for p in req.team_a_lineup]
+    b = [record_to_player_prob(BattingRecord(**p.model_dump(exclude={"player_id"}))) for p in req.team_b_lineup]
+    if len(a) != 9 or len(b) != 9:
+        raise ValueError("양 팀 타순을 각각 9명으로 구성하세요.")
+    candidates = {}
+    c = get_conn()
+    try:
+        cr = get_cur(c)
+        try:
+            for name in (req.team_a_name, req.team_b_name):
+                cr.execute("""
+                    SELECT p.player_id, p.player_name, t.team_name, ps.h, ps.double_hit,
+                           ps.triple_hit, ps.hr, ps.bb, ps.hbp, ps.tbf, ps.g, ps.gs,
+                           ps.ip, ps.era, ps.sv, ps.hld
+                    FROM player_pitcher_stats ps
+                    JOIN players p ON p.player_id=ps.player_id
+                    JOIN teams t ON t.team_id=ps.team_id
+                    WHERE t.team_name=%s AND ps.season_year=%s AND ps.tbf>0
+                    ORDER BY ps.gs DESC NULLS LAST, ps.tbf DESC, p.player_id
+                """, (name, SEASON))
+                candidates[name] = [_pitcher_row_to_prob(dict(r)) for r in cr.fetchall()]
+        finally:
+            cr.close()
+    finally:
+        c.close()
+    staffs = []
+    for side, name in (("a", req.team_a_name), ("b", req.team_b_name)):
+        pid, selected_name = getattr(req, f"pitcher_{side}_id"), getattr(req, f"pitcher_{side}")
+        pool = candidates[name]
+        matches = ([p for p in pool if p.player_id == pid] if pid else
+                   [p for p in pool if p.name == selected_name] if selected_name else
+                   [p for p in pool if p.gs > 0][:1])
+        if len(matches) != 1:
+            raise ValueError(f"{name}: 선발투수를 확인하거나 직접 선택하세요.")
+        staffs.append(build_pitching_staff(matches[0], pool))
+    avg = _get_league_avg()
+    match = MatchSimulator(req.team_a_name, a, req.team_b_name, b, seed=req.seed,
+                           bullpen_enabled=True, team_a_staff=staffs[0], team_b_staff=staffs[1], league_avg=avg)
+    return match, adjust_lineup_by_pitcher(a, staffs[1].starter, avg), adjust_lineup_by_pitcher(b, staffs[0].starter, avg)
+
+
 @app.post("/api/simulate/game")
 @app.post("/game")
 @with_connection_cleanup
 def simulate_game(req:SimReq):
-    ta=[record_to_player_prob(BattingRecord(**p.dict())) for p in req.team_a_lineup]
-    tb=[record_to_player_prob(BattingRecord(**p.dict())) for p in req.team_b_lineup]
+    if req.as_of:
+        try:
+            inputs=historical_inputs(req.as_of)
+            seed=req.seed if req.seed is not None else 42
+            match,a,b,metadata=historical_match(inputs,
+                req.team_a_name,[p.player_id or p.name for p in req.team_a_lineup],
+                req.team_b_name,[p.player_id or p.name for p in req.team_b_lineup],
+                pitcher_a_id=req.pitcher_a_id,pitcher_b_id=req.pitcher_b_id,
+                pitcher_a=req.pitcher_a,pitcher_b=req.pitcher_b,
+                seed=seed,bullpen_enabled=req.bullpen_enabled)
+            if not 1<=req.innings<=inputs.max_innings:
+                raise ValueError(f"정규 이닝은 1~{inputs.max_innings}여야 합니다.")
+            g=match.simulate_game(innings=req.innings,max_innings=inputs.max_innings)
+            return {"team_a_name":req.team_a_name,"team_b_name":req.team_b_name,
+                    "game_log":g,"is_draw":g.final_score[0]==g.final_score[1],
+                    "metadata":metadata|{"seed":seed,"innings":req.innings,"max_innings":inputs.max_innings}}
+        except HistoryUnavailable as exc:
+            raise HTTPException(409,str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(400,str(exc)) from exc
+    if req.bullpen_enabled:
+        try:
+            match, _, _ = annual_bullpen_match(req)
+            g = match.simulate_game(innings=req.innings)
+            return {"team_a_name":req.team_a_name,"team_b_name":req.team_b_name,"game_log":g,
+                    "is_draw":g.final_score[0]==g.final_score[1],"bullpen":match.bullpen_metadata()}
+        except ValueError as exc:
+            raise HTTPException(400,str(exc)) from exc
+    ta=[record_to_player_prob(BattingRecord(**p.dict(exclude={"player_id"}))) for p in req.team_a_lineup]
+    tb=[record_to_player_prob(BattingRecord(**p.dict(exclude={"player_id"}))) for p in req.team_b_lineup]
     league_avg=_get_league_avg()
     if (req.pitcher_b_id or req.pitcher_b) and league_avg:
         pp=_fetch_pitcher_prob(req.pitcher_b, req.team_b_name, req.pitcher_b_id)
@@ -463,8 +565,36 @@ def simulate_game(req:SimReq):
 @app.post("/api/simulate/multi")
 @with_connection_cleanup
 def simulate_multi(req:MultiReq):
-    ta=[record_to_player_prob(BattingRecord(**p.dict())) for p in req.team_a_lineup]
-    tb=[record_to_player_prob(BattingRecord(**p.dict())) for p in req.team_b_lineup]
+    if req.as_of:
+        try:
+            return simulate_historical(
+                historical_inputs(req.as_of),req.team_a_name,[p.player_id or p.name for p in req.team_a_lineup],
+                req.team_b_name,[p.player_id or p.name for p in req.team_b_lineup],n_games=req.n_games,
+                seed=req.seed if req.seed is not None else 42,innings=req.innings,
+                pitcher_a_id=req.pitcher_a_id,pitcher_b_id=req.pitcher_b_id,
+                pitcher_a=req.pitcher_a,pitcher_b=req.pitcher_b,bullpen_enabled=req.bullpen_enabled)
+        except HistoryUnavailable as exc:
+            raise HTTPException(409,str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(400,str(exc)) from exc
+    if req.bullpen_enabled:
+        try:
+            match, a, b = annual_bullpen_match(req)
+            result = match.simulate_many(req.n_games, innings=req.innings)
+            for key, name, lineup in (("team_a",req.team_a_name,a),("team_b",req.team_b_name,b)):
+                model = LineupMarkovModel(lineup)
+                result[key].update(name=name, markov_expected=model.expected_runs_per_game(req.innings),
+                                   prob_5_or_more=result[key]["prob_5_or_more_runs"])
+            wa, wb, draws = result["team_a"]["wins"], result["team_b"]["wins"], result["draws"]
+            result["matchup"] = {"team_a_wins":wa,"team_b_wins":wb,"draws":draws,
+                "team_a_win_probability":wa/req.n_games,"team_b_win_probability":wb/req.n_games,
+                "draw_probability":draws/req.n_games,"team_a_win_rate":wa/(wa+wb) if wa+wb else None,
+                "team_b_win_rate":wb/(wa+wb) if wa+wb else None}
+            return result
+        except ValueError as exc:
+            raise HTTPException(400,str(exc)) from exc
+    ta=[record_to_player_prob(BattingRecord(**p.dict(exclude={"player_id"}))) for p in req.team_a_lineup]
+    tb=[record_to_player_prob(BattingRecord(**p.dict(exclude={"player_id"}))) for p in req.team_b_lineup]
     league_avg=_get_league_avg()
     if (req.pitcher_b_id or req.pitcher_b) and league_avg:
         pp=_fetch_pitcher_prob(req.pitcher_b, req.team_b_name, req.pitcher_b_id)
@@ -658,7 +788,7 @@ def get_pitchers(sort:Optional[str]="era",limit:int=50,season:Optional[int]=None
 @app.post("/api/lineup/optimize")
 def optimize_lineup(req:SimReq):
     try:
-        lu=[record_to_player_prob(BattingRecord(**p.dict())) for p in req.team_a_lineup]
+        lu=[record_to_player_prob(BattingRecord(**p.dict(exclude={"player_id"}))) for p in req.team_a_lineup]
         def obp(p): return p.bb+p.single+p.double+p.triple+p.hr
         def ops(p): return obp(p)+p.single+2*p.double+3*p.triple+4*p.hr
         so=sorted(lu,key=obp,reverse=True); ss=sorted(lu,key=ops,reverse=True); sh=sorted(lu,key=lambda p:p.hr,reverse=True)

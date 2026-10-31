@@ -5,7 +5,7 @@ import { SortableContext, arrayMove, sortableKeyboardCoordinates, useSortable, v
 import type { PitcherInfo } from '../../api/simulatorApi';
 import { getTeamLogo } from '../../utils/teamLogo';
 
-export interface Batter { name: string; ab: number; hits: number; double: number; triple: number; hr: number; bb: number; hbp: number; pa?: number; position?: string | null }
+export interface Batter { name: string; ab: number; hits: number; double: number; triple: number; hr: number; bb: number; hbp: number; player_id?: string; pa?: number; position?: string | null }
 export interface Staff { starters: string[]; bullpen: Record<string, string> }
 
 interface Props {
@@ -15,7 +15,10 @@ interface Props {
   pitchers: PitcherInfo[]; pitcherId: string; onPitcherChange: (id: string) => void;
   lineup: Batter[]; onLineupChange: (l: Batter[]) => void;
   staff?: Staff; staffStarter?: string; onStaffStarterChange?: (name: string) => void;
+  availableBatters?: Batter[];
 }
+
+const playerKey = (p: Batter) => p.player_id ?? p.name;
 
 const POSITIONS = ['포수', '1루수', '2루수', '3루수', '유격수', '좌익수', '중견수', '우익수', '지명타자'];
 const ROLES = ['중계', '셋업', '롱릴리프', '마무리'];
@@ -27,7 +30,7 @@ const cap = { color: '#9ca3af', fontSize: '11px', letterSpacing: '1px', marginBo
 function LineupRow({ index, p, pos, dup, onPos, onRemove }: {
   index: number; p: Batter; pos: string; dup: boolean; onPos: (v: string) => void; onRemove: () => void;
 }) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: p.name });
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: playerKey(p) });
   const stop = { onPointerDown: (e: React.PointerEvent) => e.stopPropagation(), onKeyDown: (e: React.KeyboardEvent) => e.stopPropagation() };
   const options = POSITIONS.includes(pos) ? POSITIONS : [pos, ...POSITIONS];
   return (
@@ -51,20 +54,21 @@ function LineupRow({ index, p, pos, dup, onPos, onRemove }: {
   );
 }
 
-export default function TeamSetup({ side, teamName, teams, excludeTeam, onTeamChange, pitchers, pitcherId, onPitcherChange, lineup, onLineupChange, staff, staffStarter, onStaffStarterChange }: Props) {
+export default function TeamSetup({ side, teamName, teams, excludeTeam, onTeamChange, pitchers, pitcherId, onPitcherChange, lineup, onLineupChange, staff, staffStarter, onStaffStarterChange, availableBatters }: Props) {
   const isKbo = teams.includes(teamName);
   const [batters, setBatters] = useState<Batter[]>([]);
 
   useEffect(() => {
+    if (availableBatters !== undefined) { setBatters(availableBatters); return; }
     if (!isKbo) { setBatters([]); return; }
     let alive = true;
     fetch(`${import.meta.env.VITE_API_URL}/api/teams/${encodeURIComponent(teamName)}/batters`)
       .then(r => r.json()).then(d => alive && setBatters(d.batters ?? [])).catch(() => alive && setBatters([]));
     return () => { alive = false; };
-  }, [teamName]);
+  }, [teamName, availableBatters]);
 
-  const posMap = useMemo(() => new Map(batters.map(b => [b.name, b.position ?? ''] as [string, string])), [batters]);
-  const posOf = (p: Batter) => p.position || posMap.get(p.name) || '-';
+  const posMap = useMemo(() => new Map(batters.map(b => [playerKey(b), b.position ?? ''] as [string, string])), [batters]);
+  const posOf = (p: Batter) => p.position || posMap.get(playerKey(p)) || '-';
 
   const counts = new Map<string, number>();
   lineup.forEach(p => { const k = posOf(p); if (k !== '-') counts.set(k, (counts.get(k) ?? 0) + 1); });
@@ -76,14 +80,14 @@ export default function TeamSetup({ side, teamName, teams, excludeTeam, onTeamCh
   );
   const onDragEnd = ({ active, over }: DragEndEvent) => {
     if (!over || active.id === over.id) return;
-    const from = lineup.findIndex(p => p.name === active.id), to = lineup.findIndex(p => p.name === over.id);
+    const from = lineup.findIndex(p => playerKey(p) === active.id), to = lineup.findIndex(p => playerKey(p) === over.id);
     if (from < 0 || to < 0) return;
     onLineupChange(arrayMove(lineup, from, to));
   };
   const setPos = (i: number, v: string) => onLineupChange(lineup.map((p, k) => (k === i ? { ...p, position: v } : p)));
 
-  const used = new Set(lineup.map(p => p.name));
-  const pool = batters.filter(b => !used.has(b.name));
+  const used = new Set(lineup.map(playerKey));
+  const pool = batters.filter(b => !used.has(playerKey(b)));
   const full = lineup.length >= 9;
   const logo = getTeamLogo(teamName);
 
@@ -140,10 +144,10 @@ export default function TeamSetup({ side, teamName, teams, excludeTeam, onTeamCh
       </div>
 
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
-        <SortableContext items={lineup.map(p => p.name)} strategy={verticalListSortingStrategy}>
+        <SortableContext items={lineup.map(playerKey)} strategy={verticalListSortingStrategy}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', marginBottom: '8px' }}>
             {lineup.map((p, i) => (
-              <LineupRow key={p.name} index={i} p={p} pos={posOf(p)} dup={dupList.includes(posOf(p))}
+              <LineupRow key={playerKey(p)} index={i} p={p} pos={posOf(p)} dup={dupList.includes(posOf(p))}
                 onPos={v => setPos(i, v)} onRemove={() => onLineupChange(lineup.filter((_, k) => k !== i))} />
             ))}
             {lineup.length === 0 && <p style={{ color: '#6b7280', fontSize: '12px' }}>아래에서 타자를 선택하세요.</p>}
@@ -160,9 +164,9 @@ export default function TeamSetup({ side, teamName, teams, excludeTeam, onTeamCh
           <p style={cap}>{full ? '타순이 가득 찼습니다 (✕로 빼고 교체)' : '타자 선택 (타석 많은 순)'}</p>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px', maxHeight: 130, overflowY: 'auto' }}>
             {pool.map(b => (
-              <button key={b.name} onClick={() => !full && onLineupChange([...lineup, b])} disabled={full}
+              <button key={playerKey(b)} onClick={() => !full && onLineupChange([...lineup, b])} disabled={full}
                 style={{ ...mini, color: full ? '#4b5563' : '#d1d5db', cursor: full ? 'not-allowed' : 'pointer', padding: '4px 8px' }}>
-                {b.name}{b.position ? ` · ${b.position}` : ''}
+                {b.name}{b.pa !== undefined ? ` · ${b.pa}타석` : ''}{b.position ? ` · ${b.position}` : ''}
               </button>
             ))}
             {pool.length === 0 && <span style={{ color: '#6b7280', fontSize: '12px' }}>선택 가능한 타자가 없습니다.</span>}

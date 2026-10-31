@@ -28,14 +28,26 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass, field, replace
 from itertools import permutations
 from pathlib import Path
 from typing import Dict, List, Sequence, Tuple
 import argparse
 import csv
+import json
 import math
 import random
+
+if __package__:
+    from .bullpen import (
+        BullpenConfig, PitchingPolicy, PitchingSituation, PitchingStaff,
+        PitchingState, appearance_workloads, build_pitching_staff, pitcher_key,
+    )
+else:
+    from bullpen import (
+        BullpenConfig, PitchingPolicy, PitchingSituation, PitchingStaff,
+        PitchingState, appearance_workloads, build_pitching_staff, pitcher_key,
+    )
 
 
 # -----------------------------------------------------------------------------
@@ -148,6 +160,9 @@ class PitcherProb:
     ip: float = 0.0
     era: float = 0.0
     tbf: int = 0
+    player_id: str = ""
+    sv: int = 0
+    hld: int = 0
 
     def normalized(self) -> "PitcherProb":
         total = self.bb + self.single + self.double + self.triple + self.hr + self.out
@@ -167,6 +182,9 @@ class PitcherProb:
             ip=self.ip,
             era=self.era,
             tbf=self.tbf,
+            player_id=self.player_id,
+            sv=self.sv,
+            hld=self.hld,
         )
 
 
@@ -207,6 +225,23 @@ class PlateAppearanceLog:
     runs_scored: int
     outs_after: int
     bases_after: str
+    pitcher_name: str | None = None
+    pitcher_id: str | None = None
+    pitching_change_reason: str | None = None
+
+
+@dataclass
+class PitchingChangeLog:
+    inning: int
+    half: str
+    team_name: str
+    from_pitcher: str
+    to_pitcher: str
+    reason: str
+    outs: int
+    bases: str
+    lead: int
+    batters_faced: int
 
 
 @dataclass
@@ -224,6 +259,9 @@ class GameLog:
     team_b: str
     final_score: Tuple[int, int]
     innings: List[HalfInningLog]
+    bullpen_enabled: bool = False
+    pitching_changes: List[PitchingChangeLog] = field(default_factory=list)
+    pitching_appearances: List[dict] = field(default_factory=list)
 
 
 # -----------------------------------------------------------------------------
@@ -540,7 +578,31 @@ def _pitcher_row_to_prob(row: Dict[str, str]) -> PitcherProb:
         ip=_to_float(row.get("ip")),
         era=_to_float(row.get("era")),
         tbf=tbf,
+        player_id=str(row.get("player_id") or ""),
+        sv=_to_int(row.get("sv")),
+        hld=_to_int(row.get("hld")),
     ).normalized()
+
+
+def load_team_pitching_staff(
+    starter: PitcherProb,
+    season_year: int,
+    pitcher_stats_csv_path: Path = PITCHER_STATS_CSV_PATH,
+    history_path: Path | None = None,
+) -> PitchingStaff:
+    rows = _read_csv(pitcher_stats_csv_path)
+    candidates = [_pitcher_row_to_prob(row) for row in rows
+                  if row.get("team_name") == starter.team_name
+                  and _to_int(row.get("season_year")) == season_year
+                  and _to_int(row.get("tbf")) > 0]
+    workloads = {}
+    if history_path is not None:
+        history = json.loads(history_path.read_text(encoding="utf-8"))
+        if (history.get("schema_version") != 1 or history.get("complete") is not True
+                or history.get("season") != season_year):
+            raise ValueError("불펜 사용량 기록은 같은 시즌의 수집 완료된 경기별 기록이어야 합니다.")
+        workloads = appearance_workloads(history["pitchers"], starter.team_name)
+    return build_pitching_staff(starter, candidates, workloads)
 
 
 def load_starting_pitcher_candidates(
@@ -833,11 +895,17 @@ class LineupMarkovModel:
 
     def game_run_distribution(self, innings: int = REGULATION_INNINGS) -> List[float]:
         overall: Dict[Tuple[int, int], float] = {(0, 0): 1.0}
+        # A fixed lineup's half-inning distribution depends on its leadoff
+        # hitter, not the game's already accumulated runs. Reuse the nine
+        # distributions instead of recomputing them for every score state.
+        inning_cache: Dict[int, Tuple[List[float], List[float]]] = {}
 
         for _inning in range(innings):
             next_overall: Dict[Tuple[int, int], float] = {}
             for (total_runs, lead_idx), prob_lead in overall.items():
-                inning_run_dist, next_batter_dist = self.inning_run_distribution(start_batter_idx=lead_idx)
+                if lead_idx not in inning_cache:
+                    inning_cache[lead_idx] = self.inning_run_distribution(start_batter_idx=lead_idx)
+                inning_run_dist, next_batter_dist = inning_cache[lead_idx]
                 for inning_runs, p_runs in enumerate(inning_run_dist):
                     if p_runs == 0:
                         continue
@@ -928,12 +996,72 @@ class MatchSimulator:
         team_b_name: str,
         team_b_lineup: List[PlayerProb],
         seed: int | None = None,
+        *,
+        bullpen_enabled: bool = False,
+        team_a_staff: PitchingStaff | None = None,
+        team_b_staff: PitchingStaff | None = None,
+        league_avg: LeagueAverageProb | None = None,
+        bullpen_config: BullpenConfig | None = None,
     ) -> None:
         self.team_a_name = team_a_name
         self.team_b_name = team_b_name
         self.team_a_lineup = [p.normalized() for p in team_a_lineup]
         self.team_b_lineup = [p.normalized() for p in team_b_lineup]
         self.rng = random.Random(seed)
+        self.bullpen_enabled = bullpen_enabled
+        self.pitching_policy = PitchingPolicy(bullpen_config)
+        self.team_a_staff = team_a_staff
+        self.team_b_staff = team_b_staff
+        self._pitcher_lineups: dict[str, dict[str, List[PlayerProb]]] = {}
+        if bullpen_enabled:
+            if team_a_staff is None or team_b_staff is None or league_avg is None:
+                raise ValueError("불펜 모드에는 양 팀 선발·불펜 명단과 리그 평균이 필요합니다.")
+            if team_a_name == team_b_name:
+                raise ValueError("불펜 모드에서는 서로 다른 두 팀을 선택하세요.")
+            if len(team_a_lineup) != 9 or len(team_b_lineup) != 9:
+                raise ValueError("라인업은 9명이어야 합니다.")
+            for name, staff, batting in (
+                (team_a_name, team_a_staff, self.team_b_lineup),
+                (team_b_name, team_b_staff, self.team_a_lineup),
+            ):
+                if staff.starter.team_name != name:
+                    raise ValueError("팀 이름과 투수 명단의 소속이 다릅니다.")
+                # Only relievers are shrunk toward the league mean. Original
+                # hitter rates are always the input; adjustments never compound.
+                cache = {}
+                for pitcher in (staff.starter, *staff.relievers):
+                    effective = pitcher
+                    prior = self.pitching_policy.config.relief_prior_batters
+                    if pitcher is not staff.starter and prior > 0:
+                        p = pitcher.normalized()
+                        weight = pitcher.tbf / (pitcher.tbf + prior)
+                        effective = replace(p, **{
+                            event: getattr(p, event) * weight + getattr(league_avg, event) * (1 - weight)
+                            for event in ("bb", "single", "double", "triple", "hr", "out")
+                        })
+                    cache[pitcher_key(pitcher)] = adjust_lineup_by_pitcher(batting, effective, league_avg)
+                self._pitcher_lineups[name] = cache
+
+    def bullpen_metadata(self) -> dict:
+        if not self.bullpen_enabled:
+            return {"enabled": False}
+        return {
+            "enabled": True,
+            "policy": "workload_and_situation_rules_v1",
+            "calibrated": False,
+            "config": asdict(self.pitching_policy.config),
+            "markov_basis": "starter_fixed",
+            "teams": {
+                name: {
+                    "starter": staff.starter.name,
+                    "relievers": [p.name for p in staff.relievers],
+                    "closer": next((p.name for p in staff.relievers if pitcher_key(p) == staff.closer_id), None),
+                    "workload_sample_count": sum(len(v) for v in staff.workloads.values()),
+                    "roster_basis": "record-based candidates; not confirmed active roster",
+                }
+                for name, staff in ((self.team_a_name, self.team_a_staff), (self.team_b_name, self.team_b_staff))
+            },
+        }
 
     def sample_event(self, player: PlayerProb) -> str:
         x = self.rng.random()
@@ -953,6 +1081,12 @@ class MatchSimulator:
         start_batter_idx: int,
         walkoff_target: int | None = None,
         record_logs: bool = True,
+        *,
+        pitching_state: PitchingState | None = None,
+        defensive_score: int = 0,
+        offensive_score: int = 0,
+        regulation_innings: int = REGULATION_INNINGS,
+        pitching_changes: List[PitchingChangeLog] | None = None,
     ) -> Tuple[HalfInningLog, int, bool]:
         outs = 0
         base_mask = 0
@@ -960,12 +1094,42 @@ class MatchSimulator:
         batter_idx = start_batter_idx
         is_walkoff = False
         plate_logs: List[PlateAppearanceLog] = []
+        half_batters = 0
 
         while outs < 3:
-            player = lineup[batter_idx]
+            change_reason = None
+            if pitching_state is not None:
+                situation = PitchingSituation(
+                    inning, regulation_innings, outs, base_mask,
+                    defensive_score - offensive_score - runs,
+                    is_inning_start=half_batters == 0,
+                )
+                change_reason = self.pitching_policy.should_replace(pitching_state, situation)
+                if change_reason:
+                    previous = pitching_state.current
+                    replacement = self.pitching_policy.select_replacement(pitching_state, situation)
+                    if replacement is not None:
+                        self.pitching_policy.replace(pitching_state, replacement, self.rng)
+                        if record_logs and pitching_changes is not None:
+                            pitching_changes.append(PitchingChangeLog(
+                                inning, half, pitching_state.staff.starter.team_name,
+                                previous.pitcher.name, replacement[0].name, change_reason,
+                                outs, format_bases(base_mask), situation.lead, previous.batters_faced,
+                            ))
+                defensive_team = pitching_state.staff.starter.team_name
+                player = self._pitcher_lineups[defensive_team][pitcher_key(pitching_state.current.pitcher)][batter_idx]
+            else:
+                player = lineup[batter_idx]
             event = self.sample_event(player)
+            half_batters += 1
             new_base_mask, new_outs, scored = apply_event(base_mask, outs, event)
             runs += scored
+            if pitching_state is not None:
+                usage = pitching_state.current
+                usage.batters_faced += 1
+                usage.outs += new_outs - outs
+                usage.runs_on_mound += scored
+                usage.reaches += int(event != "OUT")
 
             if record_logs:
                 plate_logs.append(
@@ -978,6 +1142,9 @@ class MatchSimulator:
                         runs_scored=scored,
                         outs_after=new_outs,
                         bases_after=format_bases(new_base_mask),
+                        pitcher_name=pitching_state.current.pitcher.name if pitching_state else None,
+                        pitcher_id=pitcher_key(pitching_state.current.pitcher) if pitching_state else None,
+                        pitching_change_reason=change_reason,
                     )
                 )
 
@@ -1022,6 +1189,10 @@ class MatchSimulator:
         team_b_batter_idx = 0
         inning_logs: List[HalfInningLog] = []
         inning = 1
+        pitching_changes: List[PitchingChangeLog] = []
+        # New state for EVERY game, including simulate_many(record_logs=False).
+        state_a = self.pitching_policy.start_game(self.team_a_staff, self.rng) if self.bullpen_enabled else None
+        state_b = self.pitching_policy.start_game(self.team_b_staff, self.rng) if self.bullpen_enabled else None
 
         while inning <= max_innings:
             top_log, team_a_batter_idx, _ = self.simulate_half_inning(
@@ -1031,6 +1202,11 @@ class MatchSimulator:
                 lineup=self.team_a_lineup,
                 start_batter_idx=team_a_batter_idx,
                 record_logs=record_logs,
+                pitching_state=state_b,
+                defensive_score=team_b_score,
+                offensive_score=team_a_score,
+                regulation_innings=innings,
+                pitching_changes=pitching_changes,
             )
             team_a_score += top_log.runs
             if record_logs:
@@ -1052,6 +1228,11 @@ class MatchSimulator:
                 start_batter_idx=team_b_batter_idx,
                 walkoff_target=walkoff_target,
                 record_logs=record_logs,
+                pitching_state=state_a,
+                defensive_score=team_a_score,
+                offensive_score=team_b_score,
+                regulation_innings=innings,
+                pitching_changes=pitching_changes,
             )
             team_b_score += bottom_log.runs
             if record_logs:
@@ -1073,6 +1254,17 @@ class MatchSimulator:
             team_b=self.team_b_name,
             final_score=(team_a_score, team_b_score),
             innings=inning_logs,
+            bullpen_enabled=self.bullpen_enabled,
+            pitching_changes=pitching_changes,
+            pitching_appearances=[
+                {"team_name": state.staff.starter.team_name,
+                 "pitcher_id": pitcher_key(u.pitcher), "pitcher_name": u.pitcher.name,
+                 "role": u.role, "batters_faced": u.batters_faced, "outs": u.outs,
+                 "runs_on_mound": u.runs_on_mound, "budget": u.budget,
+                 "workload_source": u.workload_source}
+                for state in (state_a, state_b) if state is not None
+                for u in state.appearances if u.batters_faced > 0
+            ],
         )
 
     def simulate_many(
@@ -1088,11 +1280,20 @@ class MatchSimulator:
             raise ValueError("정규 이닝은 1 이상 최대 이닝 이하여야 합니다.")
 
         score_counts: Dict[Tuple[int, int], int] = {}
+        pitching_totals = {self.team_a_name: [0, 0, 0], self.team_b_name: [0, 0, 0]}
         for _ in range(n_games):
-            score = self.simulate_game(
+            game = self.simulate_game(
                 innings=innings, max_innings=max_innings, record_logs=False,
-            ).final_score
+            )
+            score = game.final_score
             score_counts[score] = score_counts.get(score, 0) + 1
+            if self.bullpen_enabled:
+                for usage in game.pitching_appearances:
+                    total = pitching_totals[usage["team_name"]]
+                    total[0] += 1
+                    if usage["role"] == "starter":
+                        total[1] += usage["batters_faced"]
+                        total[2] += usage["outs"]
 
         def team_stats(team_index: int) -> Dict[str, object]:
             mean = sum(score[team_index] * count for score, count in score_counts.items()) / n_games
@@ -1107,7 +1308,7 @@ class MatchSimulator:
                 "wins": sum(count for score, count in score_counts.items() if score[team_index] > score[1 - team_index]),
             }
 
-        return {
+        result = {
             "team_a": team_stats(0),
             "team_b": team_stats(1),
             "draws": sum(count for (a, b), count in score_counts.items() if a == b),
@@ -1117,6 +1318,14 @@ class MatchSimulator:
             ],
             "n_games": n_games,
         }
+        if self.bullpen_enabled:
+            result["bullpen"] = self.bullpen_metadata() | {
+                "usage": {name: {"mean_pitchers": v[0] / n_games,
+                                 "mean_starter_batters": v[1] / n_games,
+                                 "mean_starter_innings": v[2] / (3 * n_games)}
+                          for name, v in pitching_totals.items()},
+            }
+        return result
 
 
 # -----------------------------------------------------------------------------
@@ -1134,11 +1343,14 @@ def print_game_log(game_log: GameLog) -> None:
         print(f"\n[{half_log.inning}회{half_log.half}] {half_log.team_name} 공격")
         print(f"이닝 득점: {half_log.runs}점")
         for log in half_log.plate_appearances:
+            if log.pitching_change_reason:
+                print(f"  [투수 교체] {log.pitcher_name} / {log.pitching_change_reason}")
+            pitcher_text = f" / 투수 {log.pitcher_name}" if log.pitcher_name else ""
             print(
                 f"  {log.batter_order}번 {log.batter_name} - {log.event} "
                 f"/ 득점 {log.runs_scored} "
                 f"/ 아웃 {log.outs_after} "
-                f"/ {log.bases_after}"
+                f"/ {log.bases_after}{pitcher_text}"
             )
 
     print("\n" + "=" * 70)
@@ -1221,6 +1433,10 @@ def main(argv: Sequence[str] | None = None) -> None:
     parser.add_argument("--output-dir", type=Path, default=Path(__file__).parent / "results", help="PNG 저장 폴더")
     parser.add_argument("--no-show", action="store_true", help="창 표시 없이 PNG만 저장")
     parser.add_argument("--plot-order", choices=("both", "frequency", "score"), default="both", help="표시할 그래프")
+    parser.add_argument("--bullpen", action=argparse.BooleanOptionalAction, default=False,
+                        help="중계·마무리 자동 교체 사용 (기본: 끔, --no-bullpen으로 해제)")
+    parser.add_argument("--bullpen-config", type=Path, help="교체 기준을 지정한 JSON 파일")
+    parser.add_argument("--bullpen-history", type=Path, help="등판당 상대 타자 수를 사용할 같은 시즌 경기별 기록 JSON")
     args = parser.parse_args(argv)
     if args.games < 1:
         parser.error("--games는 1 이상이어야 합니다.")
@@ -1295,6 +1511,24 @@ def main(argv: Sequence[str] | None = None) -> None:
     print(f"{team_b_name} 선발투수: {team_b_starting_pitcher.name}")
     print(f"투수 보정 가중치: {PITCHER_ADJUSTMENT_WEIGHT:.2f}")
 
+    match_options = {}
+    if args.bullpen:
+        try:
+            config = BullpenConfig(**json.loads(args.bullpen_config.read_text(encoding="utf-8"))) if args.bullpen_config else BullpenConfig()
+            automatic_history = BACKEND_DIR / "data" / "game_logs" / f"{season_year}.json"
+            history_path = args.bullpen_history or (automatic_history if automatic_history.exists() else None)
+            staff_a = load_team_pitching_staff(team_a_starting_pitcher, season_year, history_path=history_path)
+            staff_b = load_team_pitching_staff(team_b_starting_pitcher, season_year, history_path=history_path)
+        except (OSError, ValueError, TypeError, KeyError) as exc:
+            parser.error(f"불펜 설정을 읽을 수 없습니다: {exc}")
+        match_options = dict(bullpen_enabled=True, team_a_staff=staff_a, team_b_staff=staff_b,
+                             league_avg=league_avg, bullpen_config=config)
+        print("\n[불펜 사용: 켬] 교체 판단은 미학습 기본 규칙입니다. 피로도 보정은 적용하지 않습니다.")
+        print(f"등판당 상대 타자 수 자료: {history_path or '시즌 보직별 평균 / 설정값'}")
+        for name, staff in ((team_a_name, staff_a), (team_b_name, staff_b)):
+            print(f"{name} 불펜: {', '.join(p.name for p in staff.relievers) or '후보 없음 (선발 계속 투구)'}")
+        print("아래 Markov 및 팀별 Monte Carlo 보고서는 기존 선발 고정 기준입니다.")
+
     print("\n" + "=" * 70)
     team_a_dist, team_a_expected = run_team_report(team_a_name, team_a, innings=REGULATION_INNINGS)
     team_b_dist, team_b_expected = run_team_report(team_b_name, team_b, innings=REGULATION_INNINGS)
@@ -1305,9 +1539,11 @@ def main(argv: Sequence[str] | None = None) -> None:
 
     match = MatchSimulator(
         team_a_name=team_a_name,
-        team_a_lineup=team_a,
+        team_a_lineup=team_a_original if args.bullpen else team_a,
         team_b_name=team_b_name,
-        team_b_lineup=team_b,
+        team_b_lineup=team_b_original if args.bullpen else team_b,
+        seed=args.seed if args.bullpen else None,
+        **match_options,
     )
 
     game_log = match.simulate_game(
@@ -1334,8 +1570,14 @@ def main(argv: Sequence[str] | None = None) -> None:
 
     print(f"\n[자료용 맞대결 {args.games:,}경기 스코어 집계]")
     results = MatchSimulator(
-        team_a_name, team_a, team_b_name, team_b, seed=args.seed,
+        team_a_name, team_a_original if args.bullpen else team_a,
+        team_b_name, team_b_original if args.bullpen else team_b, seed=args.seed,
+        **match_options,
     ).simulate_many(n_games=args.games)
+    if args.bullpen:
+        for name, usage in results["bullpen"]["usage"].items():
+            print(f"{name}: 경기당 투수 {usage['mean_pitchers']:.2f}명 / "
+                  f"선발 평균 {usage['mean_starter_innings']:.2f}이닝, {usage['mean_starter_batters']:.2f}타자")
     if __package__:
         from .score_plots import plot_match_scores, show_frequency_table
     else:
@@ -1344,7 +1586,8 @@ def main(argv: Sequence[str] | None = None) -> None:
     paths = plot_match_scores(
         results, team_a_name, team_b_name, output_dir=args.output_dir,
         show=not args.no_show, order=args.plot_order,
-        context=f"{season_year}시즌 · 선발 {team_a_starting_pitcher.name} / {team_b_starting_pitcher.name} · seed={args.seed}",
+        context=f"{season_year}시즌 · 선발 {team_a_starting_pitcher.name} / {team_b_starting_pitcher.name} · seed={args.seed}"
+                + (" · 불펜 ON (기본 교체 규칙)" if args.bullpen else ""),
     )
     for path in paths:
         print(f"그래프 저장: {path}")

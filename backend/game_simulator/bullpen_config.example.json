@@ -1,0 +1,13 @@
+{
+  "starter_batters": 24,
+  "reliever_batters": 6,
+  "starter_max_batters": 36,
+  "reliever_max_batters": 15,
+  "starter_min_batters": 9,
+  "starter_runs": 4,
+  "reliever_min_batters": 3,
+  "reliever_runs": 3,
+  "crisis_runners": 2,
+  "close_margin": 3,
+  "relief_prior_batters": 60.0
+}
